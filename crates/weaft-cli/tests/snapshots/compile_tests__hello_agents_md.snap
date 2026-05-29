@@ -1,0 +1,14 @@
+---
+source: crates/weaft-cli/tests/compile_tests.rs
+expression: "skill_output(\"agents-md\", \"hello\")"
+---
+# Hello from quickstart
+
+You are running under **AGENTS.md (generic)**.
+
+## Example
+When asked to say hello, greet the user and name the current host.
+
+
+---
+_Compiled by weaft for AGENTS.md (generic) (permission model: explicit)._

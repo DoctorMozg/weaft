@@ -1,0 +1,24 @@
+---
+source: crates/weaft-cli/tests/compile_tests.rs
+expression: "skill_output(\"cursor\", \"safe-deleter\")"
+---
+---
+description: Deletes files on request, but never destructively without confirmation.
+globs:
+- '**/*'
+alwaysApply: false
+---
+
+# Safe Deleter
+
+Delete the files the user asks for. Treat deletion as irreversible.
+
+## Permission step
+Output a clear question in the chat panel and wait for the user's reply. The host's own approval UI will gate the deletion — surface the full file list so the user can approve.
+
+## Example
+User: "remove the build artifacts" → enumerate the matching files, confirm, then delete.
+
+
+---
+_Compiled by weaft for Cursor (permission model: implicit)._

@@ -1,0 +1,10 @@
+[book]
+title = "weaft"
+description = "A capability-aware compiler for agent skills and subagents."
+authors = ["weaft contributors"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "rust"
+git-repository-url = "https://github.com/doctormozg/weaft"

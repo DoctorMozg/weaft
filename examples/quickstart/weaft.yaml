@@ -1,0 +1,21 @@
+name: quickstart
+version: 0.1.0
+description: Demonstrates capability-aware compilation of skills and subagents.
+
+targets:
+  supported:
+    - claude-code
+    - cursor
+    - agents-md
+
+parameters:
+  reviewer_focus:
+    type: string
+    default: correctness
+    description: What the code-reviewer subagent emphasizes.
+
+meta:
+  authors:
+    - weaft
+  tags:
+    - demo

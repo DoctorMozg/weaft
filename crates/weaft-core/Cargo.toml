@@ -1,0 +1,18 @@
+[package]
+name = "weaft-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core library for weaft: parse, compile, lint, and token-count agent skills/subagents."
+
+[dependencies]
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+minijinja = { workspace = true }
+miette = { workspace = true }
+thiserror = { workspace = true }
+tiktoken-rs = { workspace = true }
+walkdir = { workspace = true }
+once_cell = { workspace = true }

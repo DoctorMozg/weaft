@@ -1,0 +1,10 @@
+# Rust build output
+/target
+
+# weaft compiled output
+/dist
+dist/
+
+# Editor noise
+*.swp
+.DS_Store

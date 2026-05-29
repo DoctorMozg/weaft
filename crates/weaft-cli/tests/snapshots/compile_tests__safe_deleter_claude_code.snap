@@ -1,0 +1,26 @@
+---
+source: crates/weaft-cli/tests/compile_tests.rs
+expression: "skill_output(\"claude-code\", \"safe-deleter\")"
+---
+---
+name: safe-deleter
+description: Deletes files on request, but never destructively without confirmation.
+allowed-tools:
+- Read
+- Bash
+model: claude-sonnet-4-5
+---
+
+# Safe Deleter
+
+Delete the files the user asks for. Treat deletion as irreversible.
+
+## Permission step
+Pause and ask the user explicitly in chat before proceeding. List exactly which files you will delete and wait for an explicit "yes".
+
+## Example
+User: "remove the build artifacts" → enumerate the matching files, confirm, then delete.
+
+
+---
+_Compiled by weaft for Claude Code (permission model: explicit)._

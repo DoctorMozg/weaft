@@ -1,0 +1,12 @@
+[package]
+name = "weaft-targets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Target backends for weaft: emit host-specific skill and subagent files."
+
+[dependencies]
+weaft-core = { workspace = true }
+serde_yaml = { workspace = true }

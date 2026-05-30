@@ -1,11 +1,10 @@
-//! Heuristic lints over the raw template source: unused parameters and skills that
-//! ship no example. Both are warnings.
+//! Heuristic lint over the raw template source: parameters that are declared but never
+//! referenced. A warning.
 
 use crate::diag::Diagnostic;
 use crate::ir::Project;
 
 const UNUSED: &str = "weaft::lint::unused_parameter";
-const MISSING_EXAMPLE: &str = "weaft::lint::missing_example";
 
 pub fn check(project: &Project) -> Vec<Diagnostic> {
     let mut out = Vec::new();
@@ -35,19 +34,6 @@ pub fn check(project: &Project) -> Vec<Diagnostic> {
         }
     }
 
-    for skill in &project.skills {
-        if !has_example_heading(&skill.body) {
-            out.push(
-                Diagnostic::warning(
-                    MISSING_EXAMPLE,
-                    "skill has no `## Example` / `### Example` heading",
-                )
-                .with_artifact(skill.frontmatter.name.clone())
-                .with_help("concrete examples markedly improve skill reliability"),
-            );
-        }
-    }
-
     out
 }
 
@@ -64,14 +50,6 @@ fn references_param(src: &str, name: &str) -> bool {
     })
 }
 
-/// Heuristic: any Markdown heading line whose text contains "example".
-fn has_example_heading(body: &str) -> bool {
-    body.lines().any(|line| {
-        let l = line.trim_start();
-        l.starts_with('#') && l.to_ascii_lowercase().contains("example")
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,12 +59,5 @@ mod tests {
         assert!(references_param("run {{ params.cmd }}", "cmd"));
         assert!(!references_param("run {{ params.cmdline }}", "cmd"));
         assert!(!references_param("no refs here", "cmd"));
-    }
-
-    #[test]
-    fn detects_example_heading() {
-        assert!(has_example_heading("## Examples\nfoo"));
-        assert!(has_example_heading("### Example: x"));
-        assert!(!has_example_heading("## Usage"));
     }
 }

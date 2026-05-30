@@ -1,0 +1,38 @@
+#:schema ../schema/work.schema.json
+
+[govctl]
+id = "WI-2026-05-30-001"
+title = "Remove missing_example lint to match CHANGELOG"
+status = "done"
+created = "2026-05-30"
+started = "2026-05-30"
+completed = "2026-05-30"
+
+[content]
+description = "The missing_example lint (weaft::lint::missing_example) remains in weaft-core/src/lint/unused.rs with tests, but the maintainer's CHANGELOG dropped it from the lint list. User chose to remove the lint to match. Scope: delete the lint pass + its tests, keep unused_parameter. Lint set is not RFC-governed (no normative clause specifies it), so no RFC/ADR change."
+notes = ["Decision: dropped the missing_example lint to match the maintainer's CHANGELOG, which is treated as SSOT for the published lint set. The lint set is not RFC-governed (no normative clause specifies it), so the CHANGELOG drop was authoritative intent, not an oversight. Do not re-add missing_example assuming it was accidentally removed."]
+
+[[content.journal]]
+date = "2026-05-30"
+scope = "lint"
+content = "Removed missing_example lint pass, MISSING_EXAMPLE const, has_example_heading helper, and detects_example_heading test from lint/unused.rs. cargo test/clippy/fmt green; weaft lint emits no missing_example. govctl check passes."
+
+[[content.acceptance_criteria]]
+text = "govctl check passes"
+status = "done"
+category = "chore"
+
+[[content.acceptance_criteria]]
+text = "missing_example lint pass and its helper/const removed from weaft-core/src/lint/unused.rs"
+status = "done"
+category = "removed"
+
+[[content.acceptance_criteria]]
+text = "missing_example unit tests removed; cargo test green"
+status = "done"
+category = "removed"
+
+[[content.acceptance_criteria]]
+text = "no lingering missing_example references in code, README, CLAUDE.md, or CHANGELOG"
+status = "done"
+category = "chore"

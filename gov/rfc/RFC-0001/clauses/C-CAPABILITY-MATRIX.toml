@@ -1,0 +1,20 @@
+#:schema ../../../schema/clause.schema.json
+
+[govctl]
+id = "C-CAPABILITY-MATRIX"
+title = "Capability matrix drives compilation"
+kind = "normative"
+status = "active"
+since = "0.1.0"
+
+[content]
+text = """
+Compilation MUST be driven by a capability matrix indexed by host, artifact kind, and field.
+
+For each supported (host, kind) pair the matrix MUST declare: a support disposition (see [[RFC-0001:C-SUPPORT-DISPOSITION]]), the output layout (file path, and whether artifacts are separate files or merged into one), the serialization format (see [[RFC-0001:C-SERIALIZATION]]), the field mapping from canonical fields to host-specific keys (see [[RFC-0001:C-FRONTMATTER-FIDELITY]]), and any applicable budget (see [[RFC-0001:C-BUDGET-HONESTY]]). Where the chosen serialization format carries frontmatter, the matrix MUST also declare the frontmatter dialect.
+
+Host backends MUST NOT hardcode layout, file paths, frontmatter key names, or key casing outside the matrix; those facts MUST be expressed as matrix data.
+
+Where a field mapping cannot be expressed declaratively, weaft MAY apply a code-level transform. Such a transform MUST be a pure function of the resolved matrix cell and the artifact, and MUST NOT introduce host behavior beyond what the matrix declares.
+
+**Rationale:** A single declarative source of host and kind facts makes adding a host or kind primarily a data change, and prevents the v1 failure mode in which backend code bypassed the matrix and the matrix became decorative. Restricting the code-level escape hatch to a pure cell-plus-artifact function keeps the matrix the authoritative, inspectable description of host behavior. Frontmatter dialect is required only where it is meaningful, since config formats such as JSON or TOML carry no frontmatter."""

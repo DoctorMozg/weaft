@@ -1,0 +1,63 @@
+#:schema ../schema/adr.schema.json
+
+[govctl]
+id = "ADR-0003"
+title = "Single-source host registry"
+status = "accepted"
+date = "2026-05-30"
+refs = [ "RFC-0001" ]
+
+[content]
+context = """
+In v1, each host identifier is repeated across at least six sites: capability lookup by id, the capability list, backend dispatch by id, the backend list, the lint help string, and the CLI init defaults. Drift between them is a latent defect.
+
+### Problem Statement
+How can the set of supported hosts derive from a single declaration consumed by capability lookup, emission, linting, and the CLI, without violating the crate dependency direction?
+
+### Constraints
+[[RFC-0001:C-REGISTRY]] requires single-source host declaration and a fail-closed consistency check. Capability data must live in the core layer; emission backend code must live in the targets layer; core must not depend on targets.
+
+### Options Considered
+Two parallel ordered slices joined by id; a shared leaf crate holding both; or the status quo of duplicated match arms."""
+decision = """
+We will **declare hosts as a single ordered slice in the core layer and backends as a parallel slice in the targets layer, joined by id and enforced by a consistency test**.
+
+1. **Single source per layer:** Capability lookup, the capability list, lint help, and CLI defaults all derive from the core slice; emission derives the matching backend from the targets slice. This satisfies [[RFC-0001:C-REGISTRY]].
+2. **Fail closed:** A test asserts the two slices share the same ids in the same order, so a host added to one but not the other breaks the build.
+3. **Derived help:** Known-id help text and init defaults are computed from the slice, not hand-written.
+
+### Implementation Notes
+The split exists only because backend code cannot live in the data-only core layer; the consistency test makes the split mechanical rather than a source of drift."""
+consequences = """
+### Positive
+- Adding a host is one core entry plus one backend entry; nothing else.
+- Drift between the layers is caught automatically by a test.
+- Lint help and CLI defaults can never fall out of sync with the host set.
+
+### Negative
+- The two-slice invariant must be taught to contributors (mitigation: the consistency-test failure message states the rule explicitly).
+
+### Neutral
+- CLI init default hosts become a data flag on each host entry rather than a hardcoded list."""
+
+[[content.alternatives]]
+text = "Two parallel ordered slices (capability data in core, backend code in targets) joined by id, with a consistency test"
+status = "accepted"
+pros = [
+  "Respects the core-to-targets dependency direction",
+  "One declaration per layer; host ids derived for lint and CLI help",
+  "A consistency test fails the build on any drift",
+]
+cons = [ "Two slices rather than one literal source" ]
+
+[[content.alternatives]]
+text = "A shared leaf crate holding both capability data and backend code"
+status = "rejected"
+cons = [ "Backend trait objects cannot live in a data-only leaf; forces a larger restructure" ]
+rejection_reason = "Heavier than needed now; revisit only if a fourth consumer appears"
+
+[[content.alternatives]]
+text = "Status quo: duplicated id match arms across both layers and the CLI"
+status = "rejected"
+cons = [ "Six-site drift is exactly the defect being removed" ]
+rejection_reason = "Is the problem this decision exists to fix"

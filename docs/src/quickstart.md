@@ -2,7 +2,7 @@
 
 ## Scaffold
 
-```
+```bash
 weaft init my-project
 cd my-project
 ```
@@ -13,13 +13,13 @@ supported targets, or `--minimal` for just a manifest and one skill.
 
 ## Build
 
-```
+```bash
 weaft build --manifest-path my-project
 ```
 
 Output lands under `dist/<target-id>/`:
 
-```
+```text
 dist/
 ├── claude-code/
 │   ├── skills/hello/SKILL.md
@@ -33,7 +33,7 @@ dist/
 
 ## Inspect without writing
 
-```
+```bash
 weaft preview --target cursor --manifest-path my-project
 weaft tokens  --manifest-path my-project
 weaft lint    --manifest-path my-project
@@ -42,7 +42,7 @@ weaft targets
 
 ## Try the bundled example
 
-```
+```bash
 weaft build --manifest-path examples/quickstart
 diff dist/claude-code/skills/safe-deleter/SKILL.md dist/cursor/rules/safe-deleter.mdc
 diff dist/claude-code/agents/code-reviewer.md      dist/cursor/agents/code-reviewer.md

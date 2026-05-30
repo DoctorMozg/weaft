@@ -13,8 +13,7 @@ pub fn load_project(manifest_path: &Path) -> Result<Project, WeftError> {
     let manifest = resolve_manifest(manifest_path)?;
     let root = manifest
         .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."));
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
 
     let src = read(&manifest)?;
     let info: ProjectInfo = parse_yaml(&src).map_err(|e| WeftError::Manifest {
@@ -52,7 +51,7 @@ pub fn resolve_manifest(path: &Path) -> Result<PathBuf, WeftError> {
 /// A missing directory yields an empty list — projects need not have both folders.
 fn load_dir<T>(
     dir: &Path,
-    parse_fn: fn(&Path, String) -> Result<T, WeftError>,
+    parse_fn: fn(&Path, &str) -> Result<T, WeftError>,
 ) -> Result<Vec<T>, WeftError> {
     if !dir.is_dir() {
         return Ok(Vec::new());
@@ -72,18 +71,18 @@ fn load_dir<T>(
         .into_iter()
         .map(|p| {
             let src = read(&p)?;
-            parse_fn(&p, src)
+            parse_fn(&p, &src)
         })
         .collect()
 }
 
-fn parse_skill(path: &Path, src: String) -> Result<Skill, WeftError> {
-    let (fm_src, body) = split_frontmatter(path, &src)?;
+fn parse_skill(path: &Path, src: &str) -> Result<Skill, WeftError> {
+    let (fm_src, body) = split_frontmatter(path, src)?;
     let frontmatter: SkillMeta = parse_yaml(fm_src).map_err(|e| WeftError::Frontmatter {
         path: path.to_path_buf(),
         label: yaml_label(&e),
         span: yaml_span(&e, fm_src),
-        src: src.clone(),
+        src: src.to_string(),
     })?;
     Ok(Skill {
         frontmatter,
@@ -92,13 +91,13 @@ fn parse_skill(path: &Path, src: String) -> Result<Skill, WeftError> {
     })
 }
 
-fn parse_agent(path: &Path, src: String) -> Result<Agent, WeftError> {
-    let (fm_src, body) = split_frontmatter(path, &src)?;
+fn parse_agent(path: &Path, src: &str) -> Result<Agent, WeftError> {
+    let (fm_src, body) = split_frontmatter(path, src)?;
     let frontmatter: AgentMeta = parse_yaml(fm_src).map_err(|e| WeftError::Frontmatter {
         path: path.to_path_buf(),
         label: yaml_label(&e),
         span: yaml_span(&e, fm_src),
-        src: src.clone(),
+        src: src.to_string(),
     })?;
     Ok(Agent {
         frontmatter,
@@ -149,8 +148,8 @@ fn find_closing_fence(s: &str) -> Option<Fence> {
     None
 }
 
-fn parse_yaml<T: DeserializeOwned>(src: &str) -> Result<T, serde_yaml::Error> {
-    serde_yaml::from_str(src)
+fn parse_yaml<T: DeserializeOwned>(src: &str) -> Result<T, serde_yaml_ng::Error> {
+    serde_yaml_ng::from_str(src)
 }
 
 fn read(path: &Path) -> Result<String, WeftError> {
@@ -160,18 +159,18 @@ fn read(path: &Path) -> Result<String, WeftError> {
     })
 }
 
-/// Build a `miette` source span from a serde_yaml error location.
-fn yaml_span(err: &serde_yaml::Error, src: &str) -> miette::SourceSpan {
+/// Build a `miette` source span from a `serde_yaml_ng` error location.
+fn yaml_span(err: &serde_yaml_ng::Error, src: &str) -> miette::SourceSpan {
     match err.location() {
         Some(loc) => {
             let start = loc.index().min(src.len().saturating_sub(1));
             (start, 1).into()
-        }
+        },
         None => (0usize, src.len().min(1)).into(),
     }
 }
 
-fn yaml_label(err: &serde_yaml::Error) -> String {
+fn yaml_label(err: &serde_yaml_ng::Error) -> String {
     err.to_string()
 }
 
@@ -198,7 +197,7 @@ mod tests {
     #[test]
     fn parses_skill_meta() {
         let src = "---\nname: demo\ndescription: A demo skill.\n---\nBody {{ skill.name }}\n";
-        let skill = parse_skill(Path::new("demo.md"), src.to_string()).unwrap();
+        let skill = parse_skill(Path::new("demo.md"), src).unwrap();
         assert_eq!(skill.frontmatter.name, "demo");
         assert_eq!(skill.body, "Body {{ skill.name }}\n");
     }
@@ -206,7 +205,7 @@ mod tests {
     #[test]
     fn parses_agent_meta_with_tools() {
         let src = "---\nname: rev\ndescription: Reviewer.\ntools: [Read, Grep]\nmodel: inherit\n---\nYou review code.\n";
-        let agent = parse_agent(Path::new("rev.md"), src.to_string()).unwrap();
+        let agent = parse_agent(Path::new("rev.md"), src).unwrap();
         assert_eq!(agent.frontmatter.name, "rev");
         assert_eq!(agent.frontmatter.tools, vec!["Read", "Grep"]);
         assert_eq!(agent.frontmatter.model.as_deref(), Some("inherit"));

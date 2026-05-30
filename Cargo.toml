@@ -1,30 +1,69 @@
 [workspace]
 resolver = "2"
-members = ["crates/weaft-core", "crates/weaft-targets", "crates/weaft-cli"]
+members = [ "crates/weaft-core", "crates/weaft-targets", "crates/weaft-cli" ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-license = "MIT OR Apache-2.0"
+license = "AGPL-3.0-only"
 repository = "https://github.com/doctormozg/weaft"
+authors = [ "Stanislav Gonorovskii" ]
 
 [workspace.dependencies]
-weaft-core = { path = "crates/weaft-core" }
-weaft-targets = { path = "crates/weaft-targets" }
+weaft-core = { path = "crates/weaft-core", version = "0.1.0" }
+weaft-targets = { path = "crates/weaft-targets", version = "0.1.0" }
 
-serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.9"
-minijinja = { version = "2", features = ["loader", "macros", "loop_controls"] }
-miette = { version = "7", features = ["fancy"] }
+serde = { version = "1", features = [ "derive" ] }
+serde_yaml_ng = "0.10"
+minijinja = { version = "2", features = [ "loader", "macros", "loop_controls" ] }
+miette = { version = "7", features = [ "fancy" ] }
 thiserror = "2"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = [ "derive" ] }
 tiktoken-rs = "0.7"
 walkdir = "2"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-once_cell = "1"
+tracing-subscriber = { version = "0.3", features = [ "env-filter" ] }
 
 # dev
 insta = "1"
 assert_cmd = "2"
 predicates = "3"
+
+[workspace.lints.rust]
+# Memory safety — weaft forbids unsafe under all circumstances.
+unsafe_code = "forbid"
+# Correctness-adjacent: catches real bugs.
+let_underscore_drop = "warn"
+meta_variable_misuse = "warn"
+non_ascii_idents = "forbid"
+ambiguous_negative_literals = "warn"
+# Dead-code / unused-item hygiene.
+unused_qualifications = "warn"
+unused_import_braces = "warn"
+unused_lifetimes = "warn"
+unused_extern_crates = "warn"
+redundant_lifetimes = "warn"
+explicit_outlives_requirements = "warn"
+
+[workspace.lints.clippy]
+# Pedantic group at low priority so individual overrides win at priority 0.
+pedantic = { level = "warn", priority = -1 }
+
+# --- Pedantic lints suppressed (skeleton-stage / stylistic) ---
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+unnecessary_wraps = "allow"
+must_use_candidate = "allow"
+cast_precision_loss = "allow"
+default_trait_access = "allow"
+
+# --- Cherry-picked restriction lints (group intentionally NOT enabled wholesale) ---
+dbg_macro = "warn"
+print_stdout = "warn"      # core/targets must not write to stdout; weaft-cli opts out at crate level
+print_stderr = "warn"      # core/targets must not write to stderr; weaft-cli opts out at crate level
+todo = "warn"
+unimplemented = "warn"
+allow_attributes = "warn"
+exit = "warn"
+exhaustive_enums = "allow" # deferred: weaft-core's pub enums are matched exhaustively cross-crate, so #[non_exhaustive] would force wildcard arms and drop variant-completeness checks (cf. orno deferring exhaustive_structs)

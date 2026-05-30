@@ -18,7 +18,7 @@ capabilities (`{% if host.permission_model == "explicit" %}`) instead of forking
 
 ## What's in a project
 
-```
+```text
 my-project/
 ├── weaft.yaml      # project info, supported targets, parameters
 ├── skills/         # *.md — YAML frontmatter + Jinja2 body

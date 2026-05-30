@@ -14,7 +14,7 @@ fn quickstart() -> PathBuf {
 
 fn tmp_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("weaft-it-{}-{}", tag, std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
     dir
 }
 
@@ -46,7 +46,7 @@ fn build_writes_files() {
     assert!(out.join("cursor/rules/safe-deleter.mdc").is_file());
     assert!(out.join("claude-code/agents/code-reviewer.md").is_file());
     assert!(out.join("agents-md/AGENTS.md").is_file());
-    let _ = std::fs::remove_dir_all(&out);
+    drop(std::fs::remove_dir_all(&out));
 }
 
 #[test]
@@ -114,5 +114,5 @@ fn init_then_build_roundtrips() {
         .assert()
         .success();
 
-    let _ = std::fs::remove_dir_all(&parent);
+    drop(std::fs::remove_dir_all(&parent));
 }

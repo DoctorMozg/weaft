@@ -5,7 +5,7 @@ static `HostCapabilities` value (`weaft-core::capability`), serialized into your
 as `{{ host.* }}`.
 
 | capability | claude-code | cursor | agents-md |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `supports_tool_allowlist` | yes | no | no |
 | `supports_assets` | yes | no | no |
 | `supports_subagents` | yes (`Task`) | yes (`Agent`) | no |

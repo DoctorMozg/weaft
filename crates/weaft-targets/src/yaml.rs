@@ -1,19 +1,19 @@
 //! Small YAML helpers shared by the backends: build a `---`-fenced frontmatter block
 //! with deterministic key order, and read typed values out of a per-target override
-//! block (`serde_yaml::Value`).
+//! block (`serde_yaml_ng::Value`).
 
-use serde_yaml::Value;
+use serde_yaml_ng::Value;
 
 /// Build a `---\n<yaml>---\n` frontmatter block from ordered key/value pairs.
 /// Pairs whose value is `None` are omitted, so optional fields stay absent.
 pub fn frontmatter(pairs: Vec<(&str, Option<Value>)>) -> String {
-    let mut map = serde_yaml::Mapping::new();
+    let mut map = serde_yaml_ng::Mapping::new();
     for (k, v) in pairs {
         if let Some(value) = v {
             map.insert(Value::String(k.to_string()), value);
         }
     }
-    let body = serde_yaml::to_string(&Value::Mapping(map)).unwrap_or_default();
+    let body = serde_yaml_ng::to_string(&Value::Mapping(map)).unwrap_or_default();
     format!("---\n{body}---\n")
 }
 

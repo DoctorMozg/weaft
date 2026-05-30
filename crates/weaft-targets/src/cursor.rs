@@ -36,7 +36,7 @@ impl Target for Cursor {
         let fm = frontmatter(vec![
             ("description", Some(s(&skill.description))),
             ("globs", globs.as_deref().map(seq)),
-            ("alwaysApply", always_apply.map(serde_yaml::Value::Bool)),
+            ("alwaysApply", always_apply.map(serde_yaml_ng::Value::Bool)),
         ]);
 
         let path = format!("rules/{}.mdc", skill.name);
@@ -53,10 +53,10 @@ impl Target for Cursor {
             ("name", Some(s(&agent.name))),
             ("description", Some(s(&agent.description))),
             ("model", agent.model.clone().map(s)),
-            ("readonly", agent.readonly.map(serde_yaml::Value::Bool)),
+            ("readonly", agent.readonly.map(serde_yaml_ng::Value::Bool)),
             (
                 "is_background",
-                agent.is_background.map(serde_yaml::Value::Bool),
+                agent.is_background.map(serde_yaml_ng::Value::Bool),
             ),
         ]);
 

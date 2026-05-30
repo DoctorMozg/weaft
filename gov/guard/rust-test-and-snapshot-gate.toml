@@ -1,0 +1,14 @@
+#:schema ../schema/guard.schema.json
+
+[govctl]
+id = "GUARD-RUST-TEST-AND-SNAPSHOT-GATE"
+title = "Rust test and snapshot gate"
+refs = [
+    "RFC-0001",
+    "RFC-0001:C-REGISTRY",
+    "RFC-0001:C-DETERMINISM",
+]
+
+[check]
+command = "cargo test"
+timeout_secs = 600

@@ -1,0 +1,18 @@
+#:schema ../../../schema/clause.schema.json
+
+[govctl]
+id = "C-SERIALIZATION"
+title = "Multi-format serialization, per (host, kind)"
+kind = "normative"
+status = "active"
+since = "0.1.0"
+
+[content]
+text = """
+weaft MUST be able to emit artifacts as YAML frontmatter with a Markdown body, as TOML, as JSON, as plain Markdown, and as Markdown-with-frontmatter variants such as `.mdc`.
+
+The serialization format and the frontmatter dialect MUST be selectable per (host, kind) pair, not fixed per host.
+
+The serialization stage MUST own the framing that combines serialized fields with rendered body content for its format.
+
+**Rationale:** A single host can require different formats for different kinds — for example, TOML subagent definitions alongside YAML-frontmatter skills — so format cannot be a per-host constant. Framing differs by format (a fenced YAML block versus a TOML field that carries the body), so it must live with serialization rather than with layout."""

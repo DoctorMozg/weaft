@@ -1,0 +1,12 @@
+target/
+dist/
+node_modules/
+.claude/
+.mz/
+
+# weaft skill/subagent SOURCE files (YAML frontmatter + Jinja2 body), not prose —
+# prose rules (first-line-h1, line-length on template lines) fight their structure.
+examples/
+
+# Legal text, kept verbatim; not subject to prose linting.
+LICENSE-COMMERCIAL.md

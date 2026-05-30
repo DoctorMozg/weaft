@@ -23,7 +23,7 @@ pub fn check(project: &Project, strict: bool) -> Vec<Diagnostic> {
         Err(e) => {
             out.push(Diagnostic::error(RENDER, e.to_string()));
             return out;
-        }
+        },
     };
 
     for skill in &project.skills {

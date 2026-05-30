@@ -60,8 +60,7 @@ fn references_param(src: &str, name: &str) -> bool {
         src[after..]
             .chars()
             .next()
-            .map(|c| !c.is_alphanumeric() && c != '_')
-            .unwrap_or(true)
+            .is_none_or(|c| !c.is_alphanumeric() && c != '_')
     })
 }
 

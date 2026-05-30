@@ -12,7 +12,7 @@ pub struct Args {
     pub strict: bool,
 }
 
-pub fn run(manifest: &Path, args: Args) -> miette::Result<ExitCode> {
+pub fn run(manifest: &Path, args: &Args) -> miette::Result<ExitCode> {
     let project = super::load(manifest)?;
     let diags = lint::run(&project, args.strict);
     let tally = report(&diags);

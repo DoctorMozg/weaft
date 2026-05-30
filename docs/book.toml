@@ -1,7 +1,7 @@
 [book]
 title = "weaft"
 description = "A capability-aware compiler for agent skills and subagents."
-authors = ["weaft contributors"]
+authors = [ "weaft contributors" ]
 language = "en"
 src = "src"
 

@@ -1,0 +1,10 @@
+#:schema ../schema/guard.schema.json
+
+[govctl]
+id = "GUARD-RUST-FORMATTING-GATE"
+title = "Rust formatting gate"
+refs = ["RFC-0001"]
+
+[check]
+command = "cargo fmt --check"
+timeout_secs = 120

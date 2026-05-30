@@ -1,0 +1,18 @@
+#:schema ../../../schema/clause.schema.json
+
+[govctl]
+id = "C-REGISTRY"
+title = "Single-source host registry"
+kind = "normative"
+status = "active"
+since = "0.1.0"
+
+[content]
+text = """
+The set of supported hosts MUST derive from a single declared source consumed by capability lookup, emission, linting, and the CLI.
+
+Adding or removing a host MUST NOT require editing host identifiers in more than one declaration per build component.
+
+The build MUST fail if a declared host lacks an emission backend, or an emission backend lacks a declared host.
+
+**Rationale:** In v1 a host identifier was repeated across at least six sites and drift between them is a latent defect. A single declared source plus a consistency check makes host registration mechanical and self-verifying."""

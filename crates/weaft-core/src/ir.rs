@@ -50,12 +50,12 @@ pub struct Targets {
     #[serde(default)]
     pub supported: Vec<String>,
     #[serde(flatten)]
-    pub overrides: BTreeMap<String, serde_yaml::Value>,
+    pub overrides: BTreeMap<String, serde_yaml_ng::Value>,
 }
 
 impl Targets {
     /// Fetch the raw override block for a given target id, if present.
-    pub fn override_for(&self, target_id: &str) -> Option<&serde_yaml::Value> {
+    pub fn override_for(&self, target_id: &str) -> Option<&serde_yaml_ng::Value> {
         self.overrides.get(target_id)
     }
 

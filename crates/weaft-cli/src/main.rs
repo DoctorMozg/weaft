@@ -1,5 +1,14 @@
 //! weaft — compile one source project to host-specific agent skills and subagents.
 
+// weaft-cli is the user-facing binary: stdout is its output surface and stderr its
+// diagnostics channel. The workspace forbids direct printing in the library crates
+// (weaft-core / weaft-targets); the CLI opts back in here.
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "weaft-cli is the user-facing binary; stdout/stderr are its output channels"
+)]
+
 mod commands;
 
 use clap::{Parser, Subcommand};
@@ -48,11 +57,11 @@ fn main() -> ExitCode {
     let manifest = &cli.manifest_path;
 
     let result = match cli.command {
-        Command::Init(args) => commands::init::run(args),
-        Command::Build(args) => commands::build::run(manifest, args),
-        Command::Lint(args) => commands::lint::run(manifest, args),
-        Command::Tokens(args) => commands::tokens::run(manifest, args),
-        Command::Preview(args) => commands::preview::run(manifest, args),
+        Command::Init(args) => commands::init::run(&args),
+        Command::Build(args) => commands::build::run(manifest, &args),
+        Command::Lint(args) => commands::lint::run(manifest, &args),
+        Command::Tokens(args) => commands::tokens::run(manifest, &args),
+        Command::Preview(args) => commands::preview::run(manifest, &args),
         Command::Targets => commands::targets::run(),
     };
 
@@ -61,6 +70,6 @@ fn main() -> ExitCode {
         Err(report) => {
             eprintln!("{report:?}");
             ExitCode::FAILURE
-        }
+        },
     }
 }

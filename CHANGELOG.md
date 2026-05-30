@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format is based on
 ## [0.1.0] - 2026-05-29
 
 ### Added
+
 - Project model: a `weaft.yaml` info file plus `skills/`, `agents/`, `fragments/`, and
   optional `assets/` directories. Frontmatter is YAML; bodies are Jinja2.
 - **Capability matrix** (`weaft-core::capability`) for `claude-code`, `cursor`, and
@@ -23,10 +24,11 @@ All notable changes to this project are documented here. The format is based on
 - Parameters declared in `weaft.yaml`, overridable with `--param key=value`.
 - CLI: `init`, `build`, `preview`, `lint`, `tokens`, `targets`.
 - Lints: required fields, target validity (unknown id, asset/subagent unsupported),
-  unused parameter, missing example, and a soft token budget (`--strict`).
+  unused parameter, and a soft token budget (`--strict`).
 - `examples/quickstart` plus snapshot and CLI integration tests.
 
 ### Notes
+
 - Token budgets are weaft heuristics, not host-documented limits; token counts use an
   approximate (`cl100k_base`) tokenizer.
 

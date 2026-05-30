@@ -15,7 +15,7 @@ pub struct Args {
     pub params: Vec<String>,
 }
 
-pub fn run(manifest: &Path, args: Args) -> miette::Result<ExitCode> {
+pub fn run(manifest: &Path, args: &Args) -> miette::Result<ExitCode> {
     let project = super::load(manifest)?;
     let resolved = resolve_params(&project, &args.params)?;
 

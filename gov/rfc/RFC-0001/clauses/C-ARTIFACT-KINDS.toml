@@ -1,0 +1,18 @@
+#:schema ../../../schema/clause.schema.json
+
+[govctl]
+id = "C-ARTIFACT-KINDS"
+title = "Artifact kinds"
+kind = "normative"
+status = "active"
+since = "0.1.0"
+
+[content]
+text = """
+weaft MUST recognize a closed, enumerated set of artifact kinds: instruction, skill, subagent, command, mcp_server, settings, plugin, hook, and ignore.
+
+Every source artifact MUST be classified into exactly one kind.
+
+Unbounded, host-specific variation MUST be carried as opaque per-artifact fields rather than by introducing new kinds; the kind set MUST NOT be open to arbitrary user-defined kinds.
+
+**Rationale:** The kind set is bounded by what real hosts actually expose, so an enumerated set lets every pipeline stage handle kinds exhaustively and keeps weaft honest about what each kind means. The genuinely unbounded variation lives at the field level, where it is absorbed without changing the kind set. Because the set is closed, extending it is a governance act — a change to this clause by RFC amendment — rather than a runtime extension point."""

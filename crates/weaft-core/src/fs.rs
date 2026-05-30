@@ -56,6 +56,6 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("weaft-fs-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         assert!(list_assets(&tmp).unwrap().is_empty());
-        let _ = std::fs::remove_dir_all(&tmp);
+        drop(std::fs::remove_dir_all(&tmp));
     }
 }

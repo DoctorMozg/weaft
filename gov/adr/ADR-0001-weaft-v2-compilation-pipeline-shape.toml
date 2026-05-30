@@ -1,0 +1,66 @@
+#:schema ../schema/adr.schema.json
+
+[govctl]
+id = "ADR-0001"
+title = "weaft v2 compilation pipeline shape"
+status = "accepted"
+date = "2026-05-30"
+refs = [ "RFC-0001" ]
+
+[content]
+context = """
+weaft v2 must transform a broad and growing set of artifact kinds for many hosts while preserving weaft's separation between host-aware rendering and format/layout emission.
+
+### Problem Statement
+What stage decomposition should a v2 compile use so that host-semantic logic stays in one place, mapping and serialization are pure and testable, and fold/drop dispositions are expressible?
+
+### Constraints
+[[RFC-0001:C-PIPELINE]] requires template rendering to be the only host-semantic, template-driven stage. [[RFC-0001:C-DETERMINISM]] requires byte-stable output. [[RFC-0001:C-SUPPORT-DISPOSITION]] requires native/fold/drop to be resolvable per (host, kind).
+
+### Options Considered
+A seven-stage pipeline; retaining the v1 three-stage pipeline with fat backends; or fully template-driven emission."""
+decision = """
+We will **adopt a seven-stage pipeline** — parse, resolve, render, map, serialize, emit, merge — with rendering as the only host-semantic, template-driven stage and map/serialize/emit/merge as pure, data-driven transforms.
+
+1. **Render isolation:** Only `render` sees user templates and branches on host semantics; everything downstream consumes declared matrix data and already-rendered content. This satisfies [[RFC-0001:C-PIPELINE]].
+2. **Resolve:** A dedicated stage selects each (host, kind) disposition and performs kind remapping (e.g. skill-to-section) per [[RFC-0001:C-SUPPORT-DISPOSITION]].
+3. **Merge:** A terminal stage joins folded artifacts and enforces byte-limit checks once final size is known.
+
+### Implementation Notes
+Each stage is a pure function of its input plus the matrix, so stages can be unit-tested in isolation and output stays deterministic per [[RFC-0001:C-DETERMINISM]]."""
+consequences = """
+### Positive
+- Backends become thin; per-host divergence is data, not code.
+- Pure stages are independently testable and keep output deterministic.
+- Fold and drop are first-class, expressed in resolve and merge.
+
+### Negative
+- More moving parts than v1 (mitigation: each stage is small and individually testable).
+- Authors must understand kind remapping in the resolve stage (mitigation: documented in the source-layout guide).
+
+### Neutral
+- Byte-budget enforcement ([[ADR-0005]]) is located in the merge stage because only post-merge is the final file size known."""
+
+[[content.alternatives]]
+text = "Seven stages: parse, resolve, render, map, serialize, emit, merge"
+status = "accepted"
+pros = [
+  "Render is the sole template-driven, host-semantic stage",
+  "Map/serialize/emit are pure, data-driven, individually testable",
+  "Resolve expresses fold/drop; merge enforces byte budgets and concatenation",
+]
+cons = [ "More stages and indirection than v1" ]
+
+[[content.alternatives]]
+text = "Keep v1 parse-render-emit with per-backend emit doing mapping, serialization, and layout"
+status = "rejected"
+cons = [ "Backends re-accumulate hardcoded per-host logic" ]
+rejection_reason = "Reproduces the v1 entanglement that v2 exists to remove"
+
+[[content.alternatives]]
+text = "Fully template-driven emission (templates produce final files including frontmatter)"
+status = "rejected"
+cons = [
+  "Host-format logic leaks into user templates; loses typed mapping and determinism guarantees",
+]
+rejection_reason = "Breaks the render/emit separation and frontmatter-fidelity guarantees"

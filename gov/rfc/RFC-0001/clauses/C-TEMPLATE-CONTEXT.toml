@@ -1,0 +1,22 @@
+#:schema ../../../schema/clause.schema.json
+
+[govctl]
+id = "C-TEMPLATE-CONTEXT"
+title = "Template capability exposure is strict"
+kind = "normative"
+status = "active"
+since = "0.1.0"
+
+[content]
+text = """
+During rendering, weaft MUST expose the active host's capabilities to the template.
+
+Access to an undefined capability field MUST be a hard error that fails the build.
+
+Host-wide facts MUST be addressable independently of the current kind.
+
+Facts specific to the artifact's kind MUST be addressable as kind-scoped capabilities.
+
+A template MUST be able to query whether the host supports a given artifact kind.
+
+**Rationale:** Strict undefined access turns a capability typo into an actionable build failure instead of silently empty output, preserving weaft's fail-loud invariant. Scoping kind-specific facts to the current kind prevents a template from accidentally reading the wrong kind's capabilities."""

@@ -88,7 +88,7 @@ fn coerce(name: &str, param: &Parameter, raw: &str) -> Result<ParamValue, WeftEr
                     expected: "int",
                     got: raw.to_string(),
                 })
-        }
+        },
     }
 }
 

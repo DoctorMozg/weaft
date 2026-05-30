@@ -33,6 +33,7 @@ cargo run -p weaft-cli -- targets                                       # print 
 Snapshots live in `crates/weaft-cli/tests/snapshots/`.
 
 **End-to-end demo check** (the project's reason to exist — keep these diffs meaningful):
+
 ```bash
 cargo run -p weaft-cli -- build --manifest-path examples/quickstart
 diff dist/claude-code/skills/safe-deleter/SKILL.md dist/cursor/rules/safe-deleter.mdc
@@ -92,13 +93,30 @@ nothing internal). A compile is a three-stage pipeline: **parse → render → e
 
 ## Governance (govctl)
 
-This repo uses [govctl](https://github.com/govctl-org/govctl) as a governance harness.
-Governance artifacts (RFCs, ADRs, work items, guards) live in `gov/` as TOML validated
-against `gov/schema/`. Run `govctl check` (alias of `lint`) and `govctl status`. The
-governed workflow is driven by slash commands installed under `.claude/`: `/discuss`
-(draft RFCs/ADRs), `/gov` (governed implementation), `/quick` (small changes), `/commit`
-(record work with governance checks). `gov/.govctl.lock` is gitignored.
+This repo is governed by [govctl](https://github.com/govctl-org/govctl): RFCs, ADRs, work
+items, and guards live in `gov/` as TOML validated against `gov/schema/`. The human drives
+via slash commands (under `.claude/`); Claude runs the `govctl` verbs and **never hand-edits
+`gov/*.toml`** (it breaks the SSOT and can trip the authority validator). `gov/.govctl.lock`
+is gitignored.
+
+Workflow: `/discuss` → `/spec` → (work items + guards) → `/gov` | `/quick` → `/commit` →
+`govctl release`. `govctl check` (alias `lint`) gates every step; `govctl status` and
+`govctl tui` inspect state read-only.
+
+- **`/discuss`** — draft an RFC + ADRs (`rfc/clause/adr new`).
+- **`/spec`** — ratify: clauses → normative, ADRs accepted, `rfc finalize`.
+- **`/gov`** — governed implementation: `work new/move/tick`, `rfc advance` through phases
+  spec → impl → test → stable, `verify --work`.
+- **`/quick`** — small behavior-preserving change; lighter, still `check`-gated.
+- **`/commit`** — record work in git behind governance checks.
+- **`/wi-writer`, `/guard-writer`, `/decision-analysis`** — author a work item, a reusable
+  verification guard, or weigh a trade-off, standalone.
+
+Hard rules: an RFC must be `normative` before its work is implemented; authority flows
+upward only (an ADR `refs` an RFC; an RFC never links *down* to an ADR — error E0112);
+`govctl check` green is the definition of "done".
 
 ## Git
 
-Develop on branch `claude/weaft-v0-1-spec-pKbqm`. Dual-licensed MIT OR Apache-2.0.
+Develop on branch `claude/weaft-v0-1-spec-pKbqm`. Licensed AGPL-3.0-only, with a
+commercial option (see `LICENSE-COMMERCIAL.md`).

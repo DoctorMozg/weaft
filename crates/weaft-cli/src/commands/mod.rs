@@ -26,7 +26,7 @@ pub struct DiagTally {
 }
 
 impl DiagTally {
-    pub fn has_errors(&self) -> bool {
+    pub fn has_errors(self) -> bool {
         self.errors > 0
     }
 }

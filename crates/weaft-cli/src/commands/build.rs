@@ -25,7 +25,7 @@ pub struct Args {
     pub params: Vec<String>,
 }
 
-pub fn run(manifest: &Path, args: Args) -> miette::Result<ExitCode> {
+pub fn run(manifest: &Path, args: &Args) -> miette::Result<ExitCode> {
     let project = super::load(manifest)?;
     let resolved = resolve_params(&project, &args.params)?;
     let targets = select_targets(&project, args.target.as_deref())?;
@@ -80,7 +80,7 @@ pub fn select_targets(
         Some(id) => {
             let t = target_by_id(id).ok_or_else(|| WeftError::UnknownTarget(id.to_string()))?;
             Ok(vec![t])
-        }
+        },
         None => Ok(lint::project_hosts(project)
             .into_iter()
             .filter_map(|h| target_by_id(h.id))
@@ -130,10 +130,10 @@ fn merge(files: Vec<EmittedFile>) -> BTreeMap<PathBuf, Vec<u8>> {
             Some(existing) if f.concatenate => {
                 existing.push(b'\n');
                 existing.extend_from_slice(&f.contents);
-            }
+            },
             _ => {
                 merged.insert(f.relative_path, f.contents);
-            }
+            },
         }
     }
     merged

@@ -1,0 +1,22 @@
+#:schema ../../../schema/clause.schema.json
+
+[govctl]
+id = "C-SUPPORT-DISPOSITION"
+title = "Support disposition: native, fold, or drop"
+kind = "normative"
+status = "active"
+since = "0.1.0"
+
+[content]
+text = """
+For every (host, kind) pair the matrix MUST resolve to exactly one disposition: native, fold-into-another-kind, or drop.
+
+A native disposition MUST emit the artifact in the host's own representation.
+
+A fold-into disposition MUST place the artifact's rendered content into the file of the named target kind for that host. The fold-into target kind MUST be declared for that host and MUST itself resolve to a native disposition, and a fold chain MUST NOT exceed one hop, so folding always terminates at an emitted file.
+
+A drop disposition MUST NOT emit a file and MUST produce a warning diagnostic naming the artifact and the host.
+
+weaft MUST NOT silently omit an artifact that a host cannot represent.
+
+**Rationale:** Hosts differ in which kinds they support and how — a generic AGENTS.md folds skills into one file and cannot represent standalone subagents at all. Making disposition explicit data lets weaft adapt output per host while staying loud about anything it cannot carry. Requiring a fold target to be declared and native, with at most one hop, guarantees termination and keeps the resolved output predictable."""

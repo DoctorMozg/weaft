@@ -1,7 +1,7 @@
 //! `weaft tokens` — report token usage per target.
 //!
 //! NOTE: token counts are tokenizer **approximations** (Claude's real tokenizer is not
-//! public; weaft uses cl100k_base). Budgets (8000/6000) are weaft **heuristics**, not
+//! public; weaft uses `cl100k_base`). Budgets (8000/6000) are weaft **heuristics**, not
 //! host-documented limits. Treat the numbers as guidance, not billing accuracy.
 
 use super::build::{resolve_params, select_targets};
@@ -24,7 +24,7 @@ pub struct Args {
     pub params: Vec<String>,
 }
 
-pub fn run(manifest: &Path, args: Args) -> miette::Result<ExitCode> {
+pub fn run(manifest: &Path, args: &Args) -> miette::Result<ExitCode> {
     let project = super::load(manifest)?;
     let resolved = resolve_params(&project, &args.params)?;
     let targets = select_targets(&project, args.target.as_deref())?;
@@ -61,7 +61,7 @@ fn print_line(name: &str, body: &str, host: &weaft_core::capability::HostCapabil
         Some(budget) => {
             let pct = (count as f64 / budget as f64) * 100.0;
             println!("  {name}: {count}/{budget} ({pct:.0}%)");
-        }
+        },
         None => println!("  {name}: {count} (no budget)"),
     }
 }

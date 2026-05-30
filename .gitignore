@@ -7,5 +7,8 @@ dist/
 
 # Editor noise
 *.swp
+.mz
 .DS_Store
 .govctl.lock
+
+temp

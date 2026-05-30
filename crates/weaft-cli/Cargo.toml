@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 description = "weaft command-line interface: init, build, lint, tokens, targets, preview."
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "weaft"
 path = "src/main.rs"

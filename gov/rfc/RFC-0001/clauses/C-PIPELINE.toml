@@ -1,0 +1,18 @@
+#:schema ../../../schema/clause.schema.json
+
+[govctl]
+id = "C-PIPELINE"
+title = "Compilation pipeline stages"
+kind = "normative"
+status = "active"
+since = "0.1.0"
+
+[content]
+text = """
+A compilation MUST proceed through these ordered stages: parse, resolve, render, map, serialize, emit, and merge.
+
+Template rendering MUST be the only stage that branches on host semantics through user-authored templates.
+
+The map, serialize, emit, and merge stages MUST NOT execute user templates; they MUST act only on declared matrix data and already-rendered content.
+
+**Rationale:** Confining host-semantic, template-driven logic to a single render stage — with mapping, serialization, and layout downstream as pure, data-driven transforms — keeps backends thin and behavior predictable, and preserves weaft's separation between host-aware rendering and format/layout emission."""

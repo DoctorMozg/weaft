@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 description = "Target backends for weaft: emit host-specific skill and subagent files."
 
+[lints]
+workspace = true
+
 [dependencies]
 weaft-core = { workspace = true }
-serde_yaml = { workspace = true }
+serde_yaml_ng = { workspace = true }

@@ -21,6 +21,10 @@ use serde::Serialize;
 
 /// Static description of a single compilation target / host runtime.
 #[derive(Debug, Clone, Serialize)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "capability matrix: each bool is an independent host feature flag, not a state enum"
+)]
 pub struct HostCapabilities {
     /// Stable identifier, e.g. `"claude-code"`.
     pub id: &'static str,

@@ -1,0 +1,10 @@
+#:schema ../schema/guard.schema.json
+
+[govctl]
+id = "GUARD-RUST-CLIPPY-GATE"
+title = "Rust clippy gate"
+refs = ["RFC-0001"]
+
+[check]
+command = "cargo clippy --all-targets -- -D warnings"
+timeout_secs = 600

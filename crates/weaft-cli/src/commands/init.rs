@@ -20,13 +20,9 @@ pub struct Args {
     pub minimal: bool,
 }
 
-pub fn run(args: Args) -> miette::Result<ExitCode> {
+pub fn run(args: &Args) -> miette::Result<ExitCode> {
     let root = args.path.join(&args.name);
-    if root.exists()
-        && std::fs::read_dir(&root)
-            .map(|mut d| d.next().is_some())
-            .unwrap_or(false)
-    {
+    if root.exists() && std::fs::read_dir(&root).is_ok_and(|mut d| d.next().is_some()) {
         return Err(miette!(
             "{} already exists and is not empty",
             root.display()
@@ -70,10 +66,11 @@ pub fn run(args: Args) -> miette::Result<ExitCode> {
 }
 
 fn manifest(name: &str, targets: &[String], minimal: bool) -> String {
-    let supported = targets
-        .iter()
-        .map(|t| format!("    - {t}\n"))
-        .collect::<String>();
+    use std::fmt::Write as _;
+    let supported = targets.iter().fold(String::new(), |mut acc, t| {
+        let _ = writeln!(acc, "    - {t}");
+        acc
+    });
     let params = if minimal {
         String::new()
     } else {

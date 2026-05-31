@@ -12,10 +12,19 @@ use crate::params::ParamValues;
 use minijinja::{Environment, UndefinedBehavior, context, path_loader};
 use std::path::Path;
 
+/// The built-in `ask` macro, importable from any project body as
+/// `{% from "weaft/ask.j2" import ask %}`. Registered as a borrowed template, which
+/// minijinja resolves *before* consulting the project-root loader — so it coexists with
+/// `{% include "fragments/..." %}` without shadowing project files.
+const ASK_J2: &str = include_str!("templates/ask.j2");
+
 fn environment(project_root: &Path) -> Environment<'static> {
     let mut env = Environment::new();
     env.set_undefined_behavior(UndefinedBehavior::Strict);
     env.set_loader(path_loader(project_root));
+    // A parse error here is a weaft bug, not user input — fail loudly at first render.
+    env.add_template("weaft/ask.j2", ASK_J2)
+        .expect("built-in weaft/ask.j2 macro template must compile");
     env
 }
 
@@ -76,8 +85,8 @@ pub fn render_agent(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capability::{CLAUDE_CODE, CURSOR};
-    use crate::ir::{SkillMeta, Targets};
+    use crate::capability::{AGENTS_MD, CLAUDE_CODE, CURSOR};
+    use crate::ir::{Agent, AgentMeta, SkillMeta, Targets};
     use std::collections::BTreeMap;
 
     fn skill(body: &str) -> Skill {
@@ -153,5 +162,115 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    fn agent(body: &str) -> Agent {
+        Agent {
+            frontmatter: AgentMeta {
+                name: "demo-agent".into(),
+                description: "d".into(),
+                tools: Vec::new(),
+                model: None,
+                readonly: None,
+                is_background: None,
+                targets: Targets::default(),
+            },
+            body: body.into(),
+            source_path: "demo-agent.md".into(),
+        }
+    }
+
+    const ASK_BODY: &str = "{% from \"weaft/ask.j2\" import ask %}{{ ask(host, \"Pick one\", options=[\"a\", \"b\"]) }}";
+
+    #[test]
+    fn ask_macro_emits_structured_tool_for_claude_skill() {
+        let out = render_skill(
+            &skill(ASK_BODY),
+            &project(),
+            &CLAUDE_CODE,
+            &BTreeMap::new(),
+            Path::new("."),
+        )
+        .unwrap();
+        assert!(out.contains("AskUserQuestion"), "got: {out}");
+        assert!(out.contains("Pick one"));
+        assert!(out.contains("options: a, b"));
+    }
+
+    #[test]
+    fn ask_macro_uses_non_blocking_phrasing_for_cursor() {
+        let out = render_skill(
+            &skill(ASK_BODY),
+            &project(),
+            &CURSOR,
+            &BTreeMap::new(),
+            Path::new("."),
+        )
+        .unwrap();
+        assert!(!out.contains("AskUserQuestion"));
+        assert!(out.contains("ask question tool"));
+        assert!(out.contains("keep working"));
+    }
+
+    #[test]
+    fn ask_macro_falls_back_to_prose_for_agents_md() {
+        let out = render_skill(
+            &skill(ASK_BODY),
+            &project(),
+            &AGENTS_MD,
+            &BTreeMap::new(),
+            Path::new("."),
+        )
+        .unwrap();
+        assert!(!out.contains("AskUserQuestion"));
+        // agents-md has no question primitive → uses the prose fallback verbatim.
+        assert!(
+            out.contains("Ask the user explicitly before any destructive action."),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn ask_macro_degrades_in_claude_subagent_when_flagged() {
+        // Claude's AskUserQuestion is not available to subagents, so the macro must NOT
+        // name the tool when rendered in a subagent body flagged `subagent=true`.
+        let body =
+            "{% from \"weaft/ask.j2\" import ask %}{{ ask(host, \"Pick one\", subagent=true) }}";
+        let out = render_agent(
+            &agent(body),
+            &project(),
+            &CLAUDE_CODE,
+            &BTreeMap::new(),
+            Path::new("."),
+        )
+        .unwrap();
+        assert!(
+            !out.contains("AskUserQuestion"),
+            "subagent must degrade, got: {out}"
+        );
+        assert!(out.contains("Pick one"));
+    }
+
+    #[test]
+    fn ask_macro_autodetects_subagent_context() {
+        // minijinja shares the render context with imported macros, so `agent is defined`
+        // inside the macro sees the render `agent`. An agent body therefore auto-degrades
+        // (no explicit `subagent=true` needed) where the host's question tool is unavailable
+        // to subagents — Claude here. The skill test above confirms the inverse: a skill
+        // render (no `agent` in context) names the tool.
+        let body = "{% from \"weaft/ask.j2\" import ask %}{{ ask(host, \"Pick one\") }}";
+        let out = render_agent(
+            &agent(body),
+            &project(),
+            &CLAUDE_CODE,
+            &BTreeMap::new(),
+            Path::new("."),
+        )
+        .unwrap();
+        assert!(
+            !out.contains("AskUserQuestion"),
+            "agent body should auto-degrade, got: {out}"
+        );
+        assert!(out.contains("Pick one"));
     }
 }

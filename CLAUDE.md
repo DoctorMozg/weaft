@@ -91,32 +91,43 @@ nothing internal). A compile is a three-stage pipeline: **parse → render → e
 - Targets that can't represent an artifact **skip with a warning** rather than emit
   something broken (e.g. subagents on `agents-md`).
 
-## Governance (govctl)
-
-This repo is governed by [govctl](https://github.com/govctl-org/govctl): RFCs, ADRs, work
-items, and guards live in `gov/` as TOML validated against `gov/schema/`. The human drives
-via slash commands (under `.claude/`); Claude runs the `govctl` verbs and **never hand-edits
-`gov/*.toml`** (it breaks the SSOT and can trip the authority validator). `gov/.govctl.lock`
-is gitignored.
-
-Workflow: `/discuss` → `/spec` → (work items + guards) → `/gov` | `/quick` → `/commit` →
-`govctl release`. `govctl check` (alias `lint`) gates every step; `govctl status` and
-`govctl tui` inspect state read-only.
-
-- **`/discuss`** — draft an RFC + ADRs (`rfc/clause/adr new`).
-- **`/spec`** — ratify: clauses → normative, ADRs accepted, `rfc finalize`.
-- **`/gov`** — governed implementation: `work new/move/tick`, `rfc advance` through phases
-  spec → impl → test → stable, `verify --work`.
-- **`/quick`** — small behavior-preserving change; lighter, still `check`-gated.
-- **`/commit`** — record work in git behind governance checks.
-- **`/wi-writer`, `/guard-writer`, `/decision-analysis`** — author a work item, a reusable
-  verification guard, or weigh a trade-off, standalone.
-
-Hard rules: an RFC must be `normative` before its work is implemented; authority flows
-upward only (an ADR `refs` an RFC; an RFC never links *down* to an ADR — error E0112);
-`govctl check` green is the definition of "done".
-
 ## Git
 
 Develop on branch `claude/weaft-v0-1-spec-pKbqm`. Licensed AGPL-3.0-only, with a
 commercial option (see `LICENSE-COMMERCIAL.md`).
+
+<!-- mz-gov:governance-policy v=unknown start -->
+<!-- source: governance-policy.md -->
+## Development Governance Policy
+
+This project records the *why* behind substantial design decisions and keeps AI-proposed decisions traceable and human-approved. The `govern` pipeline does the work; this policy says when to reach for it.
+
+## When governance applies
+
+Run `/govern <the decision>` for a change that is **substantial AND ambiguous** — both must hold.
+
+- **Substantial** — it changes externally observable behavior, a public API or wire format, a data schema or migration, a dependency, a module boundary, or the security posture; or it is **hard to reverse** (a one-way door).
+- **Ambiguous** — more than one reasonable approach a competent engineer could defend.
+
+**Exempt** (no artifact needed): a behavior-preserving refactor; an objective improvement along a numeric axis (speedup, warning removal, dependency bump with no API change); a dev-invisible / tool-internal change; a throwaway prototype or spike.
+
+When in doubt, run `/govern` — it tells you if no artifact is needed and records a one-line exemption note. Manufacturing ambiguity that isn't there is not the goal; skipping a genuine one-way door is the failure.
+
+## Where artifacts live
+
+Durable governance artifacts are committed to the repository:
+
+- `docs/decisions/` — ADRs (a decision made; record the why)
+- `docs/rfcs/` — RFC/RFD (a decision still open; structure the debate)
+- `docs/design/` — design docs (a decision made; specify the build)
+
+Transient pipeline state lives under `.mz/task/` and is not committed.
+
+## AI-provenance and human sign-off (non-negotiable)
+
+Every governed decision carries an AI-provenance block — the proposing **agent**, the exact **model id**, a **timestamp**, and the **trigger** — and a recorded **human sign-off**. An agent **proposes**; a human **approves**. A decision artifact without a recorded sign-off is **not done**.
+
+## How to act (be proactive)
+
+Before you encode a substantial, ambiguous design choice into code, invoke `/govern <the decision>` yourself. Do not silently bake such a decision into a diff and leave the reasoning unrecorded — surface it through the pipeline so it gets a real artifact and a human's name on it.
+<!-- mz-gov:governance-policy end -->

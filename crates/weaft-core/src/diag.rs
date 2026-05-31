@@ -73,7 +73,7 @@ pub enum WeftError {
     #[error("unknown target: {0}")]
     #[diagnostic(
         code(weaft::target::unknown),
-        help("known targets: claude-code, cursor, agents-md")
+        help("known targets: claude-code, cursor, agents-md, opencode, codex")
     )]
     UnknownTarget(String),
 

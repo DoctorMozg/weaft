@@ -78,7 +78,7 @@ fn check_ids(targets: &Targets, artifact: &str, out: &mut Vec<Diagnostic>) {
             out.push(
                 Diagnostic::error(UNKNOWN, format!("unknown target id `{id}`"))
                     .with_artifact(artifact.to_string())
-                    .with_help("known targets: claude-code, cursor, agents-md"),
+                    .with_help("known targets: claude-code, cursor, agents-md, opencode, codex"),
             );
         }
     }

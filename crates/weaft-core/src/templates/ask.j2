@@ -1,0 +1,25 @@
+{#-
+  weaft built-in macro: render host-appropriate guidance for asking the user a
+  clarifying question. Import it from any skill or subagent body with:
+
+      {% from "weaft/ask.j2" import ask %}
+      {{ ask(host, "Which files should I delete?", options=["build/", "dist/"]) }}
+
+  `host` is passed explicitly. Subagent context is auto-detected: minijinja shares the
+  render context with imported macros, so `agent is defined` is true in a subagent body
+  and the macro degrades where a host's question tool is unavailable to subagents (e.g.
+  Claude Code's AskUserQuestion). Pass `subagent=true` to force that degradation manually.
+-#}
+{% macro ask(host, question, options=[], multi=false, subagent=false) -%}
+{%- set in_subagent = subagent or (agent is defined) -%}
+{%- set use_tool = host.ask_user_support == "structured" and (host.ask_user_in_subagents or not in_subagent) -%}
+{%- set opts = " (options: " ~ (options | join(", ")) ~ ")" if options else "" -%}
+{%- set multi_hint = " The user may select more than one option." if (multi and options) else "" -%}
+{%- if use_tool -%}
+Use the `{{ host.ask_user_primitive }}` tool to ask the user: "{{ question }}"{{ opts }}.{{ multi_hint }}
+{%- elif host.ask_user_support == "non_blocking" -%}
+Use the ask question tool to ask the user: "{{ question }}"{{ opts }}. You may keep working while you wait for the reply.{{ multi_hint }}
+{%- else -%}
+{{ host.ask_user_syntax }} Ask the user: "{{ question }}"{{ opts }}.{{ multi_hint }}
+{%- endif -%}
+{%- endmacro %}

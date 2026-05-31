@@ -1,6 +1,10 @@
+<!-- markdownlint-disable MD033 MD013 MD041 -->
+<p align="center">
+  <img src="docs/logo.png" alt="weaft logo" width="200" />
+</p>
+
 # weaft
 
-<!-- markdownlint-disable MD033 MD013 -->
 <p align="center"><em>Write an agent skill once. Compile it for every coding agent — adapted to what each one can actually do.</em></p>
 
 <p align="center">
@@ -8,7 +12,7 @@
   <a href="docs/src/introduction.md"><img src="https://img.shields.io/badge/docs-mdBook-blue" alt="Documentation" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only%20OR%20Commercial-blue" alt="License: AGPL-3.0-only OR Commercial" /></a>
 </p>
-<!-- markdownlint-enable MD033 MD013 -->
+<!-- markdownlint-enable MD033 MD013 MD041 -->
 
 You support more than one coding agent, so the same skill ends up living three times — a
 Claude Code `SKILL.md`, a Cursor `.mdc` rule, an `AGENTS.md` block — and the copies drift
@@ -47,6 +51,7 @@ makes it available everywhere at once.
 | Subagents | ✅ via `Task` | ✅ via `Agent` | — |
 | Bundled assets | ✅ | — | — |
 | Subagent tool allowlist | ✅ | — *(read-only flag)* | — |
+| Structured user questions | ✅ `AskUserQuestion` *(not in subagents)* | ✅ *non-blocking* | — |
 | Token budget *(heuristic)* | `8000` | `6000` | — |
 
 Run `weaft targets` to print this live. Because `agents-md` has no subagent concept, weaft

@@ -9,6 +9,5 @@ dist/
 *.swp
 .mz
 .DS_Store
-.govctl.lock
 
 temp

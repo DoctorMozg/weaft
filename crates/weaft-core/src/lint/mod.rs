@@ -1,6 +1,7 @@
 //! Lint passes. Each pass is a free function returning `Vec<Diagnostic>`; there is no
 //! trait or plugin system in v0.1 (YAGNI). [`run`] aggregates them all.
 
+pub mod ask_user;
 pub mod budget;
 pub mod required;
 pub mod targets;
@@ -15,6 +16,7 @@ pub fn run(project: &Project, strict: bool) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     out.extend(required::check(project));
     out.extend(targets::check(project));
+    out.extend(ask_user::check(project));
     out.extend(unused::check(project));
     out.extend(budget::check(project, strict));
     out

@@ -43,9 +43,6 @@ doc-valid-idents = [
   "TOML",
   "JSON",
   "JSONSchema",
-  # Governance (govctl) artifacts
-  "RFC",
-  "ADR",
   # Names that trigger doc_markdown otherwise
   "GitHub",
   "GitLab",

@@ -1,16 +1,18 @@
 {#-
   weaft built-in macro: render host-appropriate guidance for asking the user a
-  clarifying question. Import it from any skill or subagent body with:
+  clarifying question. Call it from any skill or subagent body with:
 
-      {% from "weaft/ask.j2" import ask %}
-      {{ ask(host, "Which files should I delete?", options=["build/", "dist/"]) }}
+      {{ ask("Which files should I delete?", options=["build/", "dist/"]) }}
 
-  `host` is passed explicitly. Subagent context is auto-detected: minijinja shares the
-  render context with imported macros, so `agent is defined` is true in a subagent body
-  and the macro degrades where a host's question tool is unavailable to subagents (e.g.
-  Claude Code's AskUserQuestion). Pass `subagent=true` to force that degradation manually.
+  `host` and subagent context are both read from the render context automatically:
+  minijinja shares the render context with imported macros, so `host` resolves to the
+  current target and `agent is defined` is true in a subagent body. The macro degrades
+  where a host's question tool is unavailable to subagents (e.g. Claude Code's
+  AskUserQuestion). Pass `subagent=true` to force that degradation manually. The import
+  is auto-prepended by the compiler for skills and subagents; instructions still import
+  it manually with `{% from "weaft/ask.j2" import ask %}`.
 -#}
-{% macro ask(host, question, options=[], multi=false, subagent=false) -%}
+{% macro ask(question, options=[], multi=false, subagent=false) -%}
 {%- set in_subagent = subagent or (agent is defined) -%}
 {%- set use_tool = host.ask_user_support == "structured" and (host.ask_user_in_subagents or not in_subagent) -%}
 {%- set opts = " (options: " ~ (options | join(", ")) ~ ")" if options else "" -%}

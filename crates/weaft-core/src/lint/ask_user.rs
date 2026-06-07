@@ -68,7 +68,7 @@ pub fn check(project: &Project) -> Vec<Diagnostic> {
 /// Does the raw body rely on the ask-user primitive — via the built-in macro import or a
 /// direct `host.ask_user_primitive` reference?
 fn uses_ask(body: &str) -> bool {
-    body.contains("weaft/ask.j2") || body.contains("ask_user_primitive")
+    body.contains("weaft/ask.j2") || body.contains("ask_user_primitive") || body.contains("{{ ask(")
 }
 
 /// Every artifact as `(name, body, targets)` — skills first, then agents.
@@ -98,7 +98,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
-    const ASK: &str = "{% from \"weaft/ask.j2\" import ask %}{{ ask(host, \"q\") }}";
+    const ASK: &str = "{{ ask(\"q\") }}";
 
     fn targets(supported: &[&str]) -> Targets {
         Targets {
@@ -167,6 +167,7 @@ mod tests {
         assert!(uses_ask("{% from \"weaft/ask.j2\" import ask %}"));
         assert!(uses_ask("use {{ host.ask_user_primitive }} now"));
         assert!(!uses_ask("no ask here"));
+        assert!(uses_ask("{{ ask(\"q\") }}"));
     }
 
     #[test]

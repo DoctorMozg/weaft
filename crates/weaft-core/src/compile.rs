@@ -15,11 +15,20 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// The built-in `ask` macro, importable from any project body as
-/// `{% from "weaft/ask.j2" import ask %}`. Registered as a borrowed template, which
-/// minijinja resolves *before* consulting the project-root loader — so it coexists with
-/// `{% include "fragments/..." %}` without shadowing project files.
+/// The built-in `ask` macro. Skills and subagents get the import auto-prepended by the
+/// compiler, so their bodies call `{{ ask("...", ...) }}` directly with no manual import.
+/// Instructions still import it explicitly with `{% from "weaft/ask.j2" import ask %}`.
+/// Registered as a borrowed template, which minijinja resolves *before* consulting the
+/// project-root loader — so it coexists with `{% include "fragments/..." %}` without
+/// shadowing project files.
 const ASK_J2: &str = include_str!("templates/ask.j2");
+
+/// The auto-prepended import that makes the [`ASK_J2`] `ask` macro callable without a manual
+/// `{% from ... %}` in skill and subagent bodies. The `{%- -%}` whitespace control is load-bearing:
+/// a bare `{% %}` tag leaves the trailing newline in place, leaking a leading `\n` into every
+/// rendered artifact; the trimming variant renders to an empty string so output stays byte-identical
+/// to rendering the body alone.
+const ASK_IMPORT: &str = "{%- from \"weaft/ask.j2\" import ask -%}";
 
 fn environment(project_root: &Path) -> Environment<'static> {
     let mut env = Environment::new();
@@ -100,7 +109,8 @@ pub fn render_skill(
         host => host_view(host, ArtifactKind::Skill),
         params => params,
     };
-    render_body(&env, &skill.frontmatter.name, &skill.body, ctx)
+    let body = format!("{ASK_IMPORT}\n{}", skill.body);
+    render_body(&env, &skill.frontmatter.name, &body, ctx)
 }
 
 /// Render a subagent body. Templates see `agent`, `project`, `host`, and `params`. The `host`
@@ -119,7 +129,8 @@ pub fn render_agent(
         host => host_view(host, ArtifactKind::Subagent),
         params => params,
     };
-    render_body(&env, &agent.frontmatter.name, &agent.body, ctx)
+    let body = format!("{ASK_IMPORT}\n{}", agent.body);
+    render_body(&env, &agent.frontmatter.name, &body, ctx)
 }
 
 /// Render an instruction body. Unlike skills/subagents an instruction carries no kind-specific
@@ -291,7 +302,7 @@ mod tests {
         }
     }
 
-    const ASK_BODY: &str = "{% from \"weaft/ask.j2\" import ask %}{{ ask(host, \"Pick one\", options=[\"a\", \"b\"]) }}";
+    const ASK_BODY: &str = "{{ ask(\"Pick one\", options=[\"a\", \"b\"]) }}";
 
     #[test]
     fn ask_macro_emits_structured_tool_for_claude_skill() {
@@ -345,8 +356,7 @@ mod tests {
     fn ask_macro_degrades_in_claude_subagent_when_flagged() {
         // Claude's AskUserQuestion is not available to subagents, so the macro must NOT
         // name the tool when rendered in a subagent body flagged `subagent=true`.
-        let body =
-            "{% from \"weaft/ask.j2\" import ask %}{{ ask(host, \"Pick one\", subagent=true) }}";
+        let body = "{{ ask(\"Pick one\", subagent=true) }}";
         let out = render_agent(
             &agent(body),
             &project(),
@@ -369,7 +379,7 @@ mod tests {
         // (no explicit `subagent=true` needed) where the host's question tool is unavailable
         // to subagents — Claude here. The skill test above confirms the inverse: a skill
         // render (no `agent` in context) names the tool.
-        let body = "{% from \"weaft/ask.j2\" import ask %}{{ ask(host, \"Pick one\") }}";
+        let body = "{{ ask(\"Pick one\") }}";
         let out = render_agent(
             &agent(body),
             &project(),
@@ -382,6 +392,70 @@ mod tests {
             !out.contains("AskUserQuestion"),
             "agent body should auto-degrade, got: {out}"
         );
+        assert!(out.contains("Pick one"));
+    }
+
+    #[test]
+    fn ask_macro_importless_emits_structured_tool() {
+        let out = render_skill(
+            &skill(ASK_BODY),
+            &project(),
+            &CLAUDE_CODE,
+            &BTreeMap::new(),
+            Path::new("."),
+        )
+        .unwrap();
+        assert!(out.contains("AskUserQuestion"), "got: {out}");
+        assert!(out.contains("Pick one"));
+        assert!(out.contains("options: a, b"));
+    }
+
+    #[test]
+    fn ask_macro_importless_uses_non_blocking_phrasing() {
+        let out = render_skill(
+            &skill(ASK_BODY),
+            &project(),
+            &CURSOR,
+            &BTreeMap::new(),
+            Path::new("."),
+        )
+        .unwrap();
+        assert!(!out.contains("AskUserQuestion"));
+        assert!(out.contains("ask question tool"));
+        assert!(out.contains("keep working"));
+    }
+
+    #[test]
+    fn ask_macro_importless_falls_back_to_prose() {
+        let out = render_skill(
+            &skill(ASK_BODY),
+            &project(),
+            &AGENTS_MD,
+            &BTreeMap::new(),
+            Path::new("."),
+        )
+        .unwrap();
+        assert!(!out.contains("AskUserQuestion"));
+        assert!(
+            out.contains("Ask the user explicitly before any destructive action."),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn ask_macro_double_import_coexists() {
+        // A skill body that already carries the explicit import must render correctly even though
+        // the compiler also auto-prepends it. minijinja must tolerate the duplicate.
+        let body = "{% from \"weaft/ask.j2\" import ask %}\n{{ ask(\"Pick one\") }}";
+        let out = render_skill(
+            &skill(body),
+            &project(),
+            &CLAUDE_CODE,
+            &BTreeMap::new(),
+            Path::new("."),
+        )
+        .unwrap();
+        assert!(out.contains("AskUserQuestion"), "got: {out}");
         assert!(out.contains("Pick one"));
     }
 }

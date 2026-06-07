@@ -1,0 +1,22 @@
+---
+source: crates/weaft-cli/tests/compile_tests.rs
+expression: "skill_output(\"opencode\", \"safe-deleter\")"
+---
+---
+name: safe-deleter
+description: Deletes files on request, but never destructively without confirmation.
+---
+
+# Safe Deleter
+
+Delete the files the user asks for. Treat deletion as irreversible.
+
+## Permission step
+Use the question tool to ask the user and wait for their selection. The host's own approval UI will gate the deletion — surface the full file list so the user can approve.
+
+## Example
+User: "remove the build artifacts" → enumerate the matching files, confirm, then delete.
+
+
+---
+_Compiled by weaft for opencode (permission model: implicit)._

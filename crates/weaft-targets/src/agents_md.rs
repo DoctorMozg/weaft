@@ -1,13 +1,24 @@
 //! Generic AGENTS.md backend.
 //!
-//! - Skills → a section in a single root `AGENTS.md` (no frontmatter). Sections from
-//!   multiple skills are concatenated by the build layer.
-//! - Subagents → unsupported; emits a warning diagnostic and no file.
+//! A thin shell since the v2 migration: the host's layout, format, and disposition are
+//! matrix data (`weaft_core::capability::AGENTS_MD`). Skills and instructions fold into a
+//! single root `AGENTS.md` as plain-Markdown sections (`merge=true`, no frontmatter);
+//! subagents resolve `Drop`, so the generic driver emits a warning and no file (the drop is
+//! matrix-driven now, not a hardcoded skip here).
+//!
+//! ## Why this backend overrides `emit_artifact`
+//!
+//! v1 emitted each agents-md section as `format!("{}\n", rendered_body.trim_end())` — it
+//! trimmed trailing whitespace and appended exactly one newline. The WU-13 `PlainMarkdown`
+//! serializer is deliberately *verbatim* (`frame(PlainMarkdown, .., body) == body`), so the
+//! trim cannot live in the shared framing without breaking its contract. It therefore lives
+//! here, applied to this host's `PlainMarkdown` sections, reproducing the v1 bytes the
+//! `hello` agents-md snapshot is pinned to.
 
-use crate::{EmitOutput, EmittedFile, Target};
+use crate::{EmittedFile, Target};
 use weaft_core::capability::{self, HostCapabilities};
-use weaft_core::diag::Diagnostic;
-use weaft_core::ir::{AgentMeta, ProjectInfo, SkillMeta};
+use weaft_core::pipeline::emit::emit;
+use weaft_core::serfmt::SerFormat;
 
 pub struct AgentsMd;
 
@@ -20,33 +31,25 @@ impl Target for AgentsMd {
         &capability::AGENTS_MD
     }
 
-    fn emit_skill(
+    fn emit_artifact(
         &self,
-        _project: &ProjectInfo,
-        _skill: &SkillMeta,
-        rendered_body: &str,
-    ) -> EmitOutput {
-        // The body is expected to begin with its own heading; emit verbatim as a
-        // section of the combined AGENTS.md.
-        let section = format!("{}\n", rendered_body.trim_end());
-        EmitOutput::file(EmittedFile::section("AGENTS.md", section))
-    }
-
-    fn emit_agent(
-        &self,
-        _project: &ProjectInfo,
-        agent: &AgentMeta,
-        _rendered_body: &str,
-    ) -> EmitOutput {
-        EmitOutput::skipped(
-            Diagnostic::warning(
-                "weaft::emit::subagent_unsupported",
-                format!(
-                    "subagent `{}` skipped: AGENTS.md has no subagent format",
-                    agent.name
-                ),
-            )
-            .with_artifact(agent.name.clone()),
-        )
+        resolved: &weaft_core::pipeline::resolve::Resolved<'_>,
+        name: &str,
+        framed: String,
+    ) -> EmittedFile {
+        let spec = emit(resolved, name, framed);
+        // Reproduce v1's per-section framing for the merged AGENTS.md: trim trailing
+        // whitespace and append a single newline. Confined to PlainMarkdown sections so a
+        // future frontmatter-bearing agents-md cell would not be silently trimmed.
+        let contents = if resolved.cell.format == SerFormat::PlainMarkdown {
+            format!("{}\n", spec.contents.trim_end())
+        } else {
+            spec.contents
+        };
+        EmittedFile {
+            relative_path: spec.relative_path,
+            contents: contents.into_bytes(),
+            concatenate: spec.merge,
+        }
     }
 }

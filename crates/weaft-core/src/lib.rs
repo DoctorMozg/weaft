@@ -6,16 +6,25 @@
 //! plus a Jinja2 body that is rendered against a host [`capability`] matrix, so a single
 //! source compiles to meaningfully different output per target.
 
+pub mod budget;
 pub mod capability;
 pub mod compile;
 pub mod diag;
 pub mod fs;
 pub mod ir;
+pub mod kind;
 pub mod lint;
 pub mod params;
 pub mod parse;
+pub mod pipeline;
+pub mod serfmt;
 pub mod tokens;
 
+pub use capability::{HostCapabilities, init_default_ids, known_ids};
 pub use diag::{Diagnostic, Severity, WeftError};
-pub use ir::{Agent, AgentMeta, Project, ProjectInfo, Skill, SkillMeta, Targets};
+pub use ir::{
+    Agent, AgentMeta, Artifact, ArtifactMeta, PluginIdentity, Project, ProjectInfo, Skill,
+    SkillMeta, Targets,
+};
+pub use kind::ArtifactKind;
 pub use params::{ParamValue, ParamValues};

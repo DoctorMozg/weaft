@@ -14,6 +14,24 @@ parameters:
     default: correctness
     description: What the code-reviewer subagent emphasizes.
 
+# Manifest singleton config (C-SOURCE-LAYOUT). Both are Native on claude-code, so they
+# emit real files (.claude/settings.json and the repo-root .mcp.json); on cursor and
+# agents-md their cells are Drop, which produces an honest drop-warning (no error).
+# plugin/hook/ignore are intentionally NOT declared so no extra drop-warnings appear (Fix 6).
+settings:
+  permissions:
+    defaultMode: acceptEdits
+
+# All mcp_servers entries aggregate into ONE document under the standard `mcpServers`
+# envelope (each server nested under its name key), emitted to the repo-root .mcp.json —
+# the host-valid Claude Code shape. More entries simply add more keys under `mcpServers`.
+mcp_servers:
+  fs:
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+
 meta:
   authors:
     - weaft

@@ -1,0 +1,12 @@
+---
+source: crates/weaft-cli/tests/compile_tests.rs
+expression: "instruction_output(\"claude-code\", \"overview\")"
+---
+# quickstart — agent guidance
+
+You are working under **Claude Code**. Prefer the project's existing
+conventions, keep changes scoped, and ask before any destructive operation.
+
+This file is the Instruction kind: it is Native on Claude Code (`CLAUDE.md`) and on the
+generic AGENTS.md host (merged into `AGENTS.md`), and it is dropped on Cursor, which has
+no instruction surface.

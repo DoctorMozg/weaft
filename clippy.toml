@@ -38,11 +38,17 @@ doc-valid-idents = [
   "Jinja",
   "MSRV",
   "SemVer",
+  "mcp_server",
+  "mcp_servers",
+  "snake_case",
+  # weaft SerFormat variant names that read as bare prose in doc comments
+  "PlainMarkdown",
   # Serialization / config formats weaft handles
   "YAML",
   "TOML",
   "JSON",
   "JSONSchema",
+  "serde_yaml_ng",
   # Names that trigger doc_markdown otherwise
   "GitHub",
   "GitLab",

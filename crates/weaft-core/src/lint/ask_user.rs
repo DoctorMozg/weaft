@@ -15,7 +15,7 @@ pub fn check(project: &Project) -> Vec<Diagnostic> {
     let mut out = Vec::new();
 
     // (a) A subagent asks via a primitive its host cannot use inside a subagent.
-    for agent in &project.agents {
+    for agent in project.agents() {
         if !uses_ask(&agent.body) {
             continue;
         }
@@ -74,14 +74,14 @@ fn uses_ask(body: &str) -> bool {
 /// Every artifact as `(name, body, targets)` — skills first, then agents.
 fn artifacts(project: &Project) -> Vec<(&str, &str, &Targets)> {
     let mut v = Vec::new();
-    for s in &project.skills {
+    for s in project.skills() {
         v.push((
             s.frontmatter.name.as_str(),
             s.body.as_str(),
             &s.frontmatter.targets,
         ));
     }
-    for a in &project.agents {
+    for a in project.agents() {
         v.push((
             a.frontmatter.name.as_str(),
             a.body.as_str(),
@@ -94,7 +94,7 @@ fn artifacts(project: &Project) -> Vec<(&str, &str, &Targets)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{Agent, AgentMeta, Meta, ProjectInfo, Skill, SkillMeta};
+    use crate::ir::{Agent, AgentMeta, Artifact, Meta, ProjectInfo, Skill, SkillMeta};
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
@@ -136,6 +136,10 @@ mod tests {
     }
 
     fn project(skills: Vec<Skill>, agents: Vec<Agent>) -> Project {
+        // v2 IR stores one kind-tagged artifact list; lift the v1 fixtures into it (WU-5).
+        let mut artifacts: Vec<Artifact> = Vec::new();
+        artifacts.extend(skills.into_iter().map(Artifact::from_skill));
+        artifacts.extend(agents.into_iter().map(Artifact::from_agent));
         Project {
             info: ProjectInfo {
                 name: "p".into(),
@@ -144,9 +148,12 @@ mod tests {
                 meta: Meta::default(),
                 targets: Targets::default(),
                 parameters: BTreeMap::new(),
+                settings: None,
+                mcp_servers: BTreeMap::new(),
+                ignore: Vec::new(),
+                plugin: None,
             },
-            skills,
-            agents,
+            artifacts,
             root: PathBuf::from("."),
         }
     }

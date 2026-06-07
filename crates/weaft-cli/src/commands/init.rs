@@ -4,6 +4,7 @@ use super::write_file;
 use miette::{IntoDiagnostic, miette};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use weaft_core::capability;
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -30,8 +31,13 @@ pub fn run(args: &Args) -> miette::Result<ExitCode> {
     }
     std::fs::create_dir_all(&root).into_diagnostic()?;
 
+    // Default to the registry's init-default set (claude-code + cursor) rather than a hardcoded
+    // literal, so the scaffolded `targets.supported` follows the capability matrix (C-REGISTRY).
     let targets = if args.targets.is_empty() {
-        vec!["claude-code".to_string(), "cursor".to_string()]
+        capability::init_default_ids()
+            .into_iter()
+            .map(str::to_string)
+            .collect()
     } else {
         args.targets.clone()
     };

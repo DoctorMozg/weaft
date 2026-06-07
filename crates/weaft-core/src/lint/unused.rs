@@ -9,14 +9,11 @@ const UNUSED: &str = "weaft::lint::unused_parameter";
 pub fn check(project: &Project) -> Vec<Diagnostic> {
     let mut out = Vec::new();
 
-    // Concatenate every body once; parameter references are project-wide.
+    // Concatenate every artifact body once; parameter references are project-wide. Singleton
+    // config artifacts carry an empty body, so they contribute nothing (WU-19 generic iteration).
     let mut all_bodies = String::new();
-    for skill in &project.skills {
-        all_bodies.push_str(&skill.body);
-        all_bodies.push('\n');
-    }
-    for agent in &project.agents {
-        all_bodies.push_str(&agent.body);
+    for artifact in &project.artifacts {
+        all_bodies.push_str(&artifact.body);
         all_bodies.push('\n');
     }
 

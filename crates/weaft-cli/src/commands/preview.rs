@@ -22,9 +22,9 @@ pub fn run(manifest: &Path, args: &Args) -> miette::Result<ExitCode> {
     // Default to the first selected target rather than every one.
     let target = *select_targets(&project, args.target.as_deref())?
         .first()
-        .ok_or_else(|| WeftError::UnknownTarget("<none supported>".to_string()))?;
+        .ok_or_else(|| WeftError::unknown_target("<none supported>"))?;
 
-    let (files, diags) = compile_target(&project, target, &resolved)?;
+    let (tagged, diags) = compile_target(&project, target, &resolved)?;
 
     for d in &diags {
         eprintln!("{}[{}]: {}", d.severity.label(), d.code, d.message);
@@ -35,9 +35,9 @@ pub fn run(manifest: &Path, args: &Args) -> miette::Result<ExitCode> {
         target.capabilities().display_name,
         target.id()
     );
-    for f in files {
-        println!("# === {} ===", f.relative_path.display());
-        println!("{}\n", String::from_utf8_lossy(&f.contents));
+    for (spec, _budget, _host_id) in tagged {
+        println!("# === {} ===", spec.relative_path.display());
+        println!("{}\n", spec.contents);
     }
 
     Ok(ExitCode::SUCCESS)

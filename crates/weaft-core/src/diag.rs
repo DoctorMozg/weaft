@@ -70,12 +70,28 @@ pub enum WeftError {
         source: Box<minijinja::Error>,
     },
 
-    #[error("unknown target: {0}")]
+    #[error("unknown target: {id}")]
+    #[diagnostic(code(weaft::target::unknown), help("{help}"))]
+    UnknownTarget {
+        /// The unrecognized target id the caller passed.
+        id: String,
+        /// The "known targets: ..." help, built from [`crate::capability::known_ids`] at
+        /// construction time so the list follows the registry (C-REGISTRY) rather than a frozen
+        /// literal that silently omits later hosts like `gemini-cli`. miette interpolates it via
+        /// the `help("{help}")` attribute.
+        help: String,
+    },
+
+    #[error("capability matrix error: {host} folds {from} into {into}, which is not a native kind")]
     #[diagnostic(
-        code(weaft::target::unknown),
-        help("known targets: claude-code, cursor, agents-md, opencode, codex")
+        code(weaft::capability::fold_chain),
+        help("a fold target must resolve Native within one hop (C-SUPPORT-DISPOSITION)")
     )]
-    UnknownTarget(String),
+    FoldChainTooDeep {
+        host: &'static str,
+        from: &'static str,
+        into: &'static str,
+    },
 
     #[error("invalid --param `{raw}`")]
     #[diagnostic(code(weaft::param::invalid), help("expected key=value"))]
@@ -88,6 +104,22 @@ pub enum WeftError {
         expected: &'static str,
         got: String,
     },
+}
+
+impl WeftError {
+    /// Build an [`WeftError::UnknownTarget`] whose help lists every registered host id, derived
+    /// from [`crate::capability::known_ids`]. Centralizing construction here keeps the single
+    /// source of the id list (C-REGISTRY): callers pass only the offending id.
+    #[must_use]
+    pub fn unknown_target(id: impl Into<String>) -> Self {
+        WeftError::UnknownTarget {
+            id: id.into(),
+            help: format!(
+                "known targets: {}",
+                crate::capability::known_ids().join(", ")
+            ),
+        }
+    }
 }
 
 /// Severity of a collected lint finding.

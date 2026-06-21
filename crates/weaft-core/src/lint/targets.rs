@@ -18,6 +18,7 @@ use crate::pipeline::resolve::resolve;
 
 const UNKNOWN: &str = "weaft::lint::invalid_target_id";
 const DROPPED: &str = "weaft::lint::dropped";
+const EMPTY_INTERSECTION: &str = "weaft::lint::empty_intersection";
 
 // The two bespoke v1 target-validity codes the generic disposition rule retires. They are no
 // longer emitted by `check`; the names are kept solely so the read-only `wu19_disposition_drop_tests`
@@ -52,6 +53,30 @@ pub fn check(project: &Project) -> Vec<Diagnostic> {
         }
     }
 
+    // Empty-intersection warning: an artifact with a non-empty `supported` list that shares
+    // no host with the project's effective set will never be compiled. This is always a
+    // configuration mistake, not an intentional no-op.
+    for artifact in &project.artifacts {
+        let explicit = &artifact.frontmatter.targets.supported;
+        if !explicit.is_empty()
+            && super::artifact_hosts(project, &artifact.frontmatter.targets).is_empty()
+        {
+            out.push(
+                Diagnostic::warning(
+                    EMPTY_INTERSECTION,
+                    format!(
+                        "{} `{}` targets {:?} but none overlap the project's effective host set; \
+                         it will never be compiled",
+                        artifact.kind.serde_name(),
+                        artifact.frontmatter.name,
+                        explicit,
+                    ),
+                )
+                .with_artifact(artifact.frontmatter.name.clone()),
+            );
+        }
+    }
+
     out
 }
 
@@ -76,6 +101,21 @@ fn check_ids(targets: &Targets, artifact: &str, out: &mut Vec<Diagnostic>) {
         if capability::by_id(id).is_none() {
             out.push(
                 Diagnostic::error(UNKNOWN, format!("unknown target id `{id}`"))
+                    .with_artifact(artifact.to_string())
+                    .with_help(format!(
+                        "known targets: {}",
+                        capability::known_ids().join(", ")
+                    )),
+            );
+        }
+    }
+    // Override keys are per-target customization blocks (`cursor: { ... }`) — they must also
+    // be valid target ids. An unknown override key is silently ignored at build time, causing
+    // the author's customizations to disappear without error.
+    for key in targets.overrides.keys() {
+        if capability::by_id(key).is_none() {
+            out.push(
+                Diagnostic::error(UNKNOWN, format!("unknown override target id `{key}`"))
                     .with_artifact(artifact.to_string())
                     .with_help(format!(
                         "known targets: {}",
@@ -376,5 +416,218 @@ mod wu19_disposition_drop_tests {
                  `{id}` is missing from: {help:?}",
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod override_key_tests {
+    use super::*;
+    use crate::ir::{Artifact, Meta, Project, ProjectInfo, Skill, SkillMeta, Targets};
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    fn skill_with_override(name: &str, supported: &[&str], override_key: &str) -> Artifact {
+        Artifact::from_skill(Skill {
+            frontmatter: SkillMeta {
+                name: name.into(),
+                description: "d".into(),
+                targets: Targets {
+                    supported: supported.iter().map(ToString::to_string).collect(),
+                    overrides: BTreeMap::from([(
+                        override_key.to_string(),
+                        serde_yaml_ng::Value::Null,
+                    )]),
+                },
+            },
+            body: "body".into(),
+            source_path: PathBuf::from(format!("skills/{name}.md")),
+        })
+    }
+
+    fn simple_project(artifacts: Vec<Artifact>, supported: &[&str]) -> Project {
+        Project {
+            info: ProjectInfo {
+                name: "p".into(),
+                version: "0".into(),
+                description: String::new(),
+                meta: Meta::default(),
+                targets: Targets {
+                    supported: supported.iter().map(ToString::to_string).collect(),
+                    overrides: BTreeMap::new(),
+                },
+                parameters: BTreeMap::new(),
+                settings: None,
+                mcp_servers: BTreeMap::new(),
+                ignore: Vec::new(),
+                plugin: None,
+            },
+            artifacts,
+            root: PathBuf::from("/weaft-nonexistent-root"),
+        }
+    }
+
+    #[test]
+    fn unknown_override_key_is_flagged_as_error() {
+        // A typo in an override key (`claud-code:` instead of `claude-code:`) is silently
+        // ignored at build time — the author's per-target customizations vanish. The lint
+        // must surface this as a hard error naming the typo'd key.
+        let p = simple_project(
+            vec![skill_with_override("greet", &["claude-code"], "claud-code")],
+            &["claude-code"],
+        );
+        let diags = check(&p);
+
+        let unknown_errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code == UNKNOWN && d.is_error())
+            .collect();
+        assert!(
+            !unknown_errors.is_empty(),
+            "a typo'd override key must produce an UNKNOWN error; got: {diags:?}",
+        );
+        assert!(
+            unknown_errors
+                .iter()
+                .any(|d| d.message.contains("claud-code")),
+            "the UNKNOWN error must name the typo'd key; got: {diags:?}",
+        );
+    }
+
+    #[test]
+    fn valid_override_key_produces_no_error() {
+        let p = simple_project(
+            vec![skill_with_override(
+                "greet",
+                &["claude-code"],
+                "claude-code",
+            )],
+            &["claude-code"],
+        );
+        let diags = check(&p);
+
+        assert!(
+            diags.iter().all(|d| d.code != UNKNOWN),
+            "a valid override key must not produce any UNKNOWN error; got: {diags:?}",
+        );
+    }
+
+    #[test]
+    fn override_key_error_help_lists_known_targets() {
+        let p = simple_project(
+            vec![skill_with_override("greet", &["claude-code"], "not-a-host")],
+            &["claude-code"],
+        );
+        let diags = check(&p);
+
+        let unknown = diags
+            .iter()
+            .find(|d| d.code == UNKNOWN && d.message.contains("not-a-host"))
+            .expect("must find UNKNOWN error for the bad override key");
+        let help = unknown
+            .help
+            .as_deref()
+            .expect("UNKNOWN error must carry help text");
+        for id in capability::known_ids() {
+            assert!(
+                help.contains(id),
+                "the help for an unknown override key must list every registry id; \
+                 `{id}` missing from: {help:?}",
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod empty_intersection_tests {
+    use super::*;
+    use crate::ir::{Artifact, Meta, Project, ProjectInfo, Skill, SkillMeta, Targets};
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    fn targets_list(supported: &[&str]) -> Targets {
+        Targets {
+            supported: supported.iter().map(ToString::to_string).collect(),
+            overrides: BTreeMap::new(),
+        }
+    }
+
+    fn skill_artifact(name: &str, supported: &[&str]) -> Artifact {
+        Artifact::from_skill(Skill {
+            frontmatter: SkillMeta {
+                name: name.into(),
+                description: "d".into(),
+                targets: targets_list(supported),
+            },
+            body: "body".into(),
+            source_path: PathBuf::from(format!("skills/{name}.md")),
+        })
+    }
+
+    fn project_for(artifacts: Vec<Artifact>, project_supported: &[&str]) -> Project {
+        Project {
+            info: ProjectInfo {
+                name: "p".into(),
+                version: "0".into(),
+                description: String::new(),
+                meta: Meta::default(),
+                targets: targets_list(project_supported),
+                parameters: BTreeMap::new(),
+                settings: None,
+                mcp_servers: BTreeMap::new(),
+                ignore: Vec::new(),
+                plugin: None,
+            },
+            artifacts,
+            root: PathBuf::from("/weaft-nonexistent-root"),
+        }
+    }
+
+    #[test]
+    fn disjoint_artifact_and_project_targets_warns() {
+        // Artifact targets `cursor` but the project only targets `claude-code` — the artifact
+        // will never be compiled. This must produce an EMPTY_INTERSECTION warning.
+        let p = project_for(vec![skill_artifact("greet", &["cursor"])], &["claude-code"]);
+        let diags = check(&p);
+
+        let warns: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code == EMPTY_INTERSECTION)
+            .collect();
+        assert_eq!(
+            warns.len(),
+            1,
+            "one empty-intersection warning for the disjoint artifact; got: {diags:?}",
+        );
+        assert!(
+            warns[0].message.contains("greet"),
+            "the warning must name the artifact; got: {:?}",
+            warns[0].message,
+        );
+    }
+
+    #[test]
+    fn overlapping_targets_produce_no_warning() {
+        let p = project_for(
+            vec![skill_artifact("greet", &["claude-code"])],
+            &["claude-code"],
+        );
+        let diags = check(&p);
+
+        assert!(
+            diags.iter().all(|d| d.code != EMPTY_INTERSECTION),
+            "an artifact that overlaps the project hosts must not warn; got: {diags:?}",
+        );
+    }
+
+    #[test]
+    fn artifact_with_empty_supported_list_does_not_warn() {
+        // An empty `supported` list means "all project hosts" — never an empty intersection.
+        let p = project_for(vec![skill_artifact("greet", &[])], &["claude-code"]);
+        let diags = check(&p);
+
+        assert!(
+            diags.iter().all(|d| d.code != EMPTY_INTERSECTION),
+            "an artifact with an empty `supported` list must not warn; got: {diags:?}",
+        );
     }
 }

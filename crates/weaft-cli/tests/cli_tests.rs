@@ -663,3 +663,260 @@ fn unknown_target_help_is_registry_derived_listing_gemini_cli() {
 
     drop(std::fs::remove_dir_all(&root));
 }
+
+#[test]
+fn build_refuses_an_unknown_declared_target_id() {
+    // A typo in weaft.yaml `targets.supported` (no `--target` given) must FAIL the build with the
+    // unknown-target error — not silently select zero targets and exit 0 (a success-reporting
+    // no-op). `lint` reports the same typo via the `targets` lint, but `build` must refuse outright.
+    let root = project_with_one_skill("build-bad-declared-target", "claud-code");
+
+    weaft()
+        .args(["build", "--manifest-path"])
+        .arg(&root)
+        .arg("--out")
+        .arg(root.join("dist"))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unknown target"))
+        .stderr(predicate::str::contains("claud-code"));
+
+    drop(std::fs::remove_dir_all(&root));
+}
+
+#[test]
+fn lint_reports_findings_even_when_a_render_fails() {
+    // A render failure in the dry-run must NOT abort the lint report: an already-collected finding
+    // (here an unknown target id on an artifact) must still be reported alongside the render error.
+    // Before the fix the dry-run propagated the render error via `?`, so `report` never ran and the
+    // entire collected report was discarded.
+    let root = tmp_dir("lint-render-no-abort");
+    std::fs::create_dir_all(root.join("agents")).unwrap();
+    std::fs::write(
+        root.join("weaft.yaml"),
+        "name: render-abort\nversion: 0.1.0\ntargets:\n  supported:\n    - claude-code\n",
+    )
+    .unwrap();
+    // The subagent body references an undefined `host.*` (strict-undefined → render error) AND the
+    // artifact targets an unknown host id (a finding the report must still surface).
+    std::fs::write(
+        root.join("agents/rev.md"),
+        "---\nname: rev\ndescription: reviewer.\ntargets:\n  supported:\n    - claude-code\n    - nonexistent-host\n---\nUses {{ host.does_not_exist }}.\n",
+    )
+    .unwrap();
+
+    weaft()
+        .args(["lint", "--manifest-path"])
+        .arg(&root)
+        .assert()
+        .failure()
+        // The non-render finding survives (proves the report was not aborted)...
+        .stderr(predicate::str::contains("nonexistent-host"))
+        // ...and the render failure is itself surfaced as a collected diagnostic.
+        .stderr(predicate::str::contains("weaft::lint::render"));
+
+    drop(std::fs::remove_dir_all(&root));
+}
+
+// --- ADR-0007: directory-based skill layout, end-to-end through the CLI ---
+//
+// These integration tests exercise the full directory-layout pipeline (parse → per-skill loader →
+// render → emit → lint) against temp-dir projects, so the committed quickstart and its snapshots
+// stay untouched (the snapshot oracle remains flat-only, ADR §11). They are RED until WU-1/WU-2
+// (directory parse + per-skill loader root) and WU-3/WU-4 (layout lint passes) land:
+// - the directory-layout builds parse a `skills/<name>/SKILL.md` the flat-only parser ignores
+//   today, so no claude-code skill file is emitted → the `is_file()` assertions fail;
+// - the duplicate/missing-SKILL.md lint assertions look for diagnostic codes no pass emits yet;
+// - the missing-include build expects a hard render failure the flat parser never reaches.
+
+/// Write a directory-layout project targeting `host` with one `skills/greeter/SKILL.md` whose body
+/// includes a sibling phase file, returning the project root. Mirrors the temp-dir convention used
+/// by the other CLI fixtures (`tmp_dir(tag)` + per-test tag).
+fn directory_skill_project(tag: &str, host: &str) -> PathBuf {
+    let root = tmp_dir(tag);
+    std::fs::create_dir_all(root.join("skills/greeter/phases")).unwrap();
+    std::fs::write(
+        root.join("weaft.yaml"),
+        format!("name: {tag}\nversion: 0.1.0\ntargets:\n  supported:\n    - {host}\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("skills/greeter/SKILL.md"),
+        "---\nname: greeter\ndescription: a directory-layout skill.\n---\n{% include \"phases/intro.md\" %}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("skills/greeter/phases/intro.md"),
+        "Greet the user warmly.\n",
+    )
+    .unwrap();
+    root
+}
+
+#[test]
+fn build_directory_layout_skill_emits_file() {
+    // End-to-end (ADR §1, §2, §14): a directory skill must parse, resolve its phase include from
+    // its own dir, render, and emit to claude-code's `skills/<name>/SKILL.md` layout — with the
+    // rendered phase text in the emitted file.
+    let root = directory_skill_project("dir-build", "claude-code");
+    let out = root.join("dist");
+
+    weaft()
+        .args(["build", "--manifest-path"])
+        .arg(&root)
+        .arg("--out")
+        .arg(&out)
+        .assert()
+        .success();
+
+    let emitted = out.join("claude-code/skills/greeter/SKILL.md");
+    assert!(
+        emitted.is_file(),
+        "a directory-layout skill must emit claude-code/skills/greeter/SKILL.md",
+    );
+    let text = std::fs::read_to_string(&emitted).expect("read emitted SKILL.md");
+    assert!(
+        text.contains("Greet the user warmly."),
+        "the emitted file must carry the rendered phase include content; got:\n{text}",
+    );
+
+    drop(std::fs::remove_dir_all(&root));
+}
+
+#[test]
+fn build_mixed_flat_and_directory_skills() {
+    // A project may mix forms (ADR §2): a flat `skills/flat.md` and a directory `skills/dir/SKILL.md`
+    // must both build and emit for claude-code.
+    let root = tmp_dir("mixed-build");
+    std::fs::create_dir_all(root.join("skills/dir")).unwrap();
+    std::fs::write(
+        root.join("weaft.yaml"),
+        "name: mixed-build\nversion: 0.1.0\ntargets:\n  supported:\n    - claude-code\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("skills/flat.md"),
+        "---\nname: flat\ndescription: a flat skill.\n---\nFlat body.\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("skills/dir/SKILL.md"),
+        "---\nname: dir\ndescription: a directory skill.\n---\nDir body.\n",
+    )
+    .unwrap();
+    let out = root.join("dist");
+
+    weaft()
+        .args(["build", "--manifest-path"])
+        .arg(&root)
+        .arg("--out")
+        .arg(&out)
+        .assert()
+        .success();
+
+    assert!(
+        out.join("claude-code/skills/flat/SKILL.md").is_file(),
+        "the flat skill must emit claude-code/skills/flat/SKILL.md",
+    );
+    assert!(
+        out.join("claude-code/skills/dir/SKILL.md").is_file(),
+        "the directory skill must emit claude-code/skills/dir/SKILL.md",
+    );
+
+    drop(std::fs::remove_dir_all(&root));
+}
+
+#[test]
+fn lint_warns_on_duplicate_skill_forms() {
+    // ADR §6: both `skills/dup.md` and `skills/dup/SKILL.md` present → `weaft lint` exits 0 with a
+    // `duplicate_skill` warning, and `weaft lint --strict` exits non-zero (the warning escalates).
+    let root = tmp_dir("dup-lint");
+    std::fs::create_dir_all(root.join("skills/dup")).unwrap();
+    std::fs::write(
+        root.join("weaft.yaml"),
+        "name: dup-lint\nversion: 0.1.0\ntargets:\n  supported:\n    - claude-code\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("skills/dup.md"),
+        "---\nname: dup\ndescription: flat form.\n---\nFlat body.\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("skills/dup/SKILL.md"),
+        "---\nname: dup\ndescription: directory form.\n---\nDir body.\n",
+    )
+    .unwrap();
+
+    weaft()
+        .args(["lint", "--manifest-path"])
+        .arg(&root)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("duplicate_skill"));
+
+    weaft()
+        .args(["lint", "--strict", "--manifest-path"])
+        .arg(&root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("duplicate_skill"));
+
+    drop(std::fs::remove_dir_all(&root));
+}
+
+#[test]
+fn lint_warns_on_directory_without_skill_md() {
+    // ADR §7: a `skills/x/` with `.md` files but no SKILL.md → `weaft lint` exits 0 with a
+    // `missing_skill_md` warning naming the ignored directory.
+    let root = tmp_dir("missing-skillmd-lint");
+    std::fs::create_dir_all(root.join("skills/x")).unwrap();
+    std::fs::write(
+        root.join("weaft.yaml"),
+        "name: missing-skillmd-lint\nversion: 0.1.0\ntargets:\n  supported:\n    - claude-code\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("skills/x/notes.md"),
+        "loose notes, not a SKILL.md\n",
+    )
+    .unwrap();
+
+    weaft()
+        .args(["lint", "--manifest-path"])
+        .arg(&root)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("missing_skill_md"));
+
+    drop(std::fs::remove_dir_all(&root));
+}
+
+#[test]
+fn build_fails_on_missing_phase_include() {
+    // ADR §5: a directory skill including a non-existent `phases/missing.md` (no such file) must
+    // make `weaft build` exit non-zero — a hard render error, never silent fallback.
+    let root = tmp_dir("missing-include-build");
+    std::fs::create_dir_all(root.join("skills/greeter")).unwrap();
+    std::fs::write(
+        root.join("weaft.yaml"),
+        "name: missing-include-build\nversion: 0.1.0\ntargets:\n  supported:\n    - claude-code\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("skills/greeter/SKILL.md"),
+        "---\nname: greeter\ndescription: includes a missing phase.\n---\n{% include \"phases/missing.md\" %}\n",
+    )
+    .unwrap();
+    let out = root.join("dist");
+
+    weaft()
+        .args(["build", "--manifest-path"])
+        .arg(&root)
+        .arg("--out")
+        .arg(&out)
+        .assert()
+        .failure();
+
+    drop(std::fs::remove_dir_all(&root));
+}

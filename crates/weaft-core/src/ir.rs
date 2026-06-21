@@ -8,9 +8,7 @@
 //! [`Project`] now carries a single `Vec<Artifact>` rather than separate `skills`/`agents`
 //! vectors: every compiled thing is a kind-tagged [`Artifact`]. The pre-v2 [`Skill`] /
 //! [`Agent`] types are retained as a migration shim — the [`Project::skills`] /
-//! [`Project::agents`] accessors filter by kind, and [`Project::as_v1_skills`] /
-//! [`Project::as_v1_agents`] reconstruct the rich v1 metadata that the still-v1 render /
-//! emit call sites consume until later waves rewrite them.
+//! [`Project::agents`] accessors filter by kind.
 
 use crate::kind::ArtifactKind;
 use serde::{Deserialize, Serialize};
@@ -43,32 +41,6 @@ impl Project {
         self.artifacts
             .iter()
             .filter(|a| a.kind == ArtifactKind::Subagent)
-    }
-
-    /// Reconstruct the v1 [`Skill`] view of every skill artifact. Bridges artifacts to the
-    /// render/emit call sites that still take `&Skill`/`&SkillMeta` (rewritten in WU-15).
-    #[must_use]
-    pub fn as_v1_skills(&self) -> Vec<Skill> {
-        self.skills()
-            .map(|a| Skill {
-                frontmatter: a.frontmatter.to_skill_meta(),
-                body: a.body.clone(),
-                source_path: a.source_path.clone(),
-            })
-            .collect()
-    }
-
-    /// Reconstruct the v1 [`Agent`] view of every subagent artifact. Bridges artifacts to the
-    /// render/emit call sites that still take `&Agent`/`&AgentMeta` (rewritten in WU-15).
-    #[must_use]
-    pub fn as_v1_agents(&self) -> Vec<Agent> {
-        self.agents()
-            .map(|a| Agent {
-                frontmatter: a.frontmatter.to_agent_meta(),
-                body: a.body.clone(),
-                source_path: a.source_path.clone(),
-            })
-            .collect()
     }
 }
 
@@ -252,10 +224,10 @@ pub struct Artifact {
 }
 
 impl Artifact {
-    /// Build a `Skill`-kind artifact from the v1 [`Skill`] view. Used by the parser to keep
-    /// its existing per-kind frontmatter parsing while populating the generic IR.
-    #[must_use]
-    pub fn from_skill(skill: Skill) -> Self {
+    /// Test-only: lift a v1 [`Skill`] fixture into the v2 generic IR. Production parse paths
+    /// build `Artifact` directly; this exists only to keep test helpers readable.
+    #[cfg(test)]
+    pub(crate) fn from_skill(skill: Skill) -> Self {
         Artifact {
             kind: ArtifactKind::Skill,
             frontmatter: ArtifactMeta::from_skill_meta(skill.frontmatter),
@@ -264,11 +236,9 @@ impl Artifact {
         }
     }
 
-    /// Build a `Subagent`-kind artifact from the v1 [`Agent`] view. The subagent-specific
-    /// top-level fields (`tools`/`model`/`readonly`/`is_background`) are packed into the
-    /// opaque `fields` map — the `FieldSource::TopLevel` read site.
-    #[must_use]
-    pub fn from_agent(agent: Agent) -> Self {
+    /// Test-only: lift a v1 [`Agent`] fixture into the v2 generic IR.
+    #[cfg(test)]
+    pub(crate) fn from_agent(agent: Agent) -> Self {
         Artifact {
             kind: ArtifactKind::Subagent,
             frontmatter: ArtifactMeta::from_agent_meta(agent.frontmatter),

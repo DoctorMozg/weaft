@@ -6,14 +6,14 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use weaft_core::budget::{Budget, BudgetSeverity, BudgetUnit};
-use weaft_core::capability::Disposition;
+use weaft_core::capability::{self, Disposition};
 use weaft_core::compile;
 use weaft_core::diag::{Diagnostic, WeftError};
 use weaft_core::ir::Project;
 use weaft_core::params::{self, ParamValues};
 use weaft_core::pipeline::emit::EmittedSpec;
 use weaft_core::pipeline::map::map_fields;
-use weaft_core::pipeline::resolve::resolve;
+use weaft_core::pipeline::resolve::{Resolved, resolve};
 use weaft_core::{fs, lint};
 use weaft_targets::{EmittedFile, Target, serialize, target_by_id};
 
@@ -53,7 +53,7 @@ pub fn run(manifest: &Path, args: &Args) -> miette::Result<ExitCode> {
         }
 
         if target.capabilities().supports_assets {
-            total_files += copy_assets(&project, *target, &target_dir, &resolved)?;
+            total_files += copy_assets(&project, *target, &target_dir)?;
         }
     }
 
@@ -72,7 +72,7 @@ pub fn run(manifest: &Path, args: &Args) -> miette::Result<ExitCode> {
 }
 
 /// Resolve declared parameters against `--param` overrides.
-pub fn resolve_params(project: &Project, raw: &[String]) -> miette::Result<ParamValues> {
+pub(crate) fn resolve_params(project: &Project, raw: &[String]) -> miette::Result<ParamValues> {
     let overrides = raw
         .iter()
         .map(|r| params::parse_override(r))
@@ -81,25 +81,45 @@ pub fn resolve_params(project: &Project, raw: &[String]) -> miette::Result<Param
 }
 
 /// Pick the target backends to build: one explicit `--target`, or all project hosts.
-pub fn select_targets(
+///
+/// With no explicit `--target`, an unknown id in the project's declared `supported` list is a hard
+/// error — otherwise a typo (`claud-code`) would silently select zero targets and let a build /
+/// preview / tokens run "succeed" having produced nothing. `lint` deliberately tolerates the same
+/// typo (it reports it through the core `targets` lint) and so uses [`project_targets`] directly.
+pub(crate) fn select_targets(
     project: &Project,
     explicit: Option<&str>,
 ) -> miette::Result<Vec<&'static dyn Target>> {
-    match explicit {
-        Some(id) => {
-            let t = target_by_id(id).ok_or_else(|| WeftError::unknown_target(id))?;
-            Ok(vec![t])
-        },
-        None => Ok(lint::project_hosts(project)
-            .into_iter()
-            .filter_map(|h| target_by_id(h.id))
-            .collect()),
+    if let Some(id) = explicit {
+        let t = target_by_id(id).ok_or_else(|| WeftError::unknown_target(id))?;
+        return Ok(vec![t]);
     }
+    if let Some(unknown) = project
+        .info
+        .targets
+        .supported
+        .iter()
+        .find(|id| capability::by_id(id.as_str()).is_none())
+    {
+        return Err(WeftError::unknown_target(unknown.as_str()).into());
+    }
+    Ok(project_targets(project))
+}
+
+/// Every registered backend the project compiles for, silently skipping any unknown declared id.
+/// Tolerant by design: build / preview / tokens reach it through [`select_targets`], which
+/// validates the declared ids first; `lint` calls it directly because it reports unknown ids
+/// through the core `targets` lint and must not abort its dry-run on one.
+pub(crate) fn project_targets(project: &Project) -> Vec<&'static dyn Target> {
+    lint::project_hosts(project)
+        .into_iter()
+        .filter_map(|h| target_by_id(h.id))
+        .collect()
 }
 
 /// A merge-ready emitted item: the framed spec plus the per-path budget and host id the
 /// hard-byte check needs (so [`merge_and_check`] never re-enters the capability matrix).
-pub type TaggedSpec = (EmittedSpec, Option<Budget>, &'static str);
+pub(crate) type TaggedSpec = (EmittedSpec, Option<Budget>, &'static str);
 
 /// The generic v2 pipeline driver: drive resolve → render → map → serialize → emit over every
 /// artifact for one target (ADR-0001).
@@ -298,24 +318,27 @@ fn normalize_newlines(contents: &str) -> String {
     contents.replace("\r\n", "\n")
 }
 
-/// Copy `assets/` into each emitted skill directory (Claude-style hosts only).
-fn copy_assets(
-    project: &Project,
-    target: &dyn Target,
-    target_dir: &Path,
-    params: &ParamValues,
-) -> miette::Result<usize> {
+/// Copy `assets/` alongside each emitted skill, into the directory the host's matrix layout puts
+/// `SKILL.md` in. Only hosts whose skill cell bundles assets reach here (claude-code, codex); each
+/// host gets the assets in the right place — `skills/<name>/` for claude, `.agents/skills/<name>/`
+/// for codex — instead of a hardcoded `skills/<name>/` that misplaced codex's.
+fn copy_assets(project: &Project, target: &dyn Target, target_dir: &Path) -> miette::Result<usize> {
     let assets = fs::list_assets(&project.root)?;
     if assets.is_empty() {
         return Ok(0);
     }
+    let host = target.capabilities();
     let mut count = 0;
     for skill in project.skills() {
         if !skill.frontmatter.targets.supports(target.id()) {
             continue;
         }
-        let _ = params; // assets are copied verbatim; params do not affect them
-        let skill_dir = target_dir.join("skills").join(&skill.frontmatter.name);
+        let resolved = resolve(skill, host);
+        // A host that drops the Skill kind emits no SKILL.md, so there is nowhere to put assets.
+        if resolved.disposition == Disposition::Drop {
+            continue;
+        }
+        let skill_dir = target_dir.join(skill_asset_dir(&resolved, &skill.frontmatter.name));
         for asset in &assets {
             let bytes = fs::read_bytes(&asset.absolute)?;
             let dest = skill_dir.join(&asset.relative);
@@ -327,6 +350,18 @@ fn copy_assets(
         }
     }
     Ok(count)
+}
+
+/// The directory a skill's bundled assets land in, relative to the target output root: the parent
+/// of its rendered `SKILL.md` path, taken from the matrix layout (C-CAPABILITY-MATRIX — never a
+/// hardcoded path). This is what lets codex assets follow `.agents/skills/<name>/` and claude
+/// assets `skills/<name>/` from one code path.
+fn skill_asset_dir(resolved: &Resolved, name: &str) -> PathBuf {
+    let skill_rel = PathBuf::from(resolved.cell.layout.path_template.replace("{name}", name));
+    skill_rel
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default()
 }
 
 /// WU-14: `merge_and_check` — deterministic merge + hard-byte enforcement (RED).
@@ -595,6 +630,63 @@ mod tests {
         assert!(
             key_displays.iter().any(|k| k == "skills/demo/SKILL.md"),
             "merged path keys must use forward slashes; got: {key_displays:?}",
+        );
+    }
+}
+
+/// Asset placement follows the matrix skill layout, not a hardcoded `skills/<name>/` (Fix 6).
+///
+/// `copy_assets` itself does filesystem I/O, but the bug it had was purely in *where* it computed
+/// the destination — so these tests pin the extracted [`super::skill_asset_dir`] path computation
+/// directly. Before the fix every host's assets went to `skills/<name>/`; codex's `SKILL.md` lives
+/// at `.agents/skills/<name>/SKILL.md`, so its assets were landing in the wrong directory.
+#[cfg(test)]
+mod asset_path_tests {
+    use super::skill_asset_dir;
+    use std::collections::BTreeMap;
+    use std::path::{Path, PathBuf};
+    use weaft_core::capability;
+    use weaft_core::ir::{Artifact, ArtifactMeta, Targets};
+    use weaft_core::kind::ArtifactKind;
+    use weaft_core::pipeline::resolve::resolve;
+
+    fn skill(name: &str) -> Artifact {
+        Artifact {
+            kind: ArtifactKind::Skill,
+            frontmatter: ArtifactMeta {
+                name: name.to_string(),
+                description: "d".to_string(),
+                targets: Targets::default(),
+                kind_override: None,
+                fields: BTreeMap::new(),
+            },
+            body: String::new(),
+            source_path: PathBuf::from(format!("skills/{name}.md")),
+        }
+    }
+
+    #[test]
+    fn claude_assets_land_in_the_skill_md_parent_dir() {
+        let host = capability::by_id("claude-code").expect("claude-code host");
+        let resolved = resolve(&skill("safe-deleter"), host);
+        assert_eq!(
+            skill_asset_dir(&resolved, "safe-deleter"),
+            Path::new("skills/safe-deleter"),
+            "claude assets must sit beside SKILL.md in `skills/<name>/`",
+        );
+    }
+
+    #[test]
+    fn codex_assets_follow_the_agents_skills_layout_not_a_hardcoded_skills_dir() {
+        // The Fix-6 keystone: codex's SKILL.md is at `.agents/skills/<name>/SKILL.md`, so its
+        // assets must follow into `.agents/skills/<name>/` — not the pre-fix hardcoded
+        // `skills/<name>/` that applied claude's layout to every host.
+        let host = capability::by_id("codex").expect("codex host");
+        let resolved = resolve(&skill("safe-deleter"), host);
+        assert_eq!(
+            skill_asset_dir(&resolved, "safe-deleter"),
+            Path::new(".agents/skills/safe-deleter"),
+            "codex assets must follow the `.agents/skills/<name>/` matrix layout",
         );
     }
 }

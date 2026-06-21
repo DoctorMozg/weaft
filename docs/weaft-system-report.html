@@ -1,0 +1,1687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>weaft — System Report</title>
+<style>
+:root {
+  --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --border: #30363d;
+  --text: #c9d1d9; --muted: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --red: #f85149; --yellow: #d29922; --purple: #bc8cff;
+  --orange: #f0883e; --teal: #39d353;
+  --r: 8px; --font: 'SF Mono', 'Fira Code', monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.6; }
+a { color: var(--accent); text-decoration: none; }
+code { font-family: var(--font); background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+
+/* Layout */
+.page { max-width: 1400px; margin: 0 auto; padding: 24px; }
+header { border-bottom: 1px solid var(--border); padding-bottom: 24px; margin-bottom: 32px; }
+header h1 { font-size: 28px; font-weight: 700; color: #fff; }
+header .subtitle { color: var(--muted); margin-top: 4px; font-size: 15px; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.badge-green { background: rgba(63,185,80,.2); color: var(--green); border: 1px solid rgba(63,185,80,.3); }
+.badge-blue { background: rgba(88,166,255,.2); color: var(--accent); border: 1px solid rgba(88,166,255,.3); }
+.badge-yellow { background: rgba(210,153,34,.2); color: var(--yellow); border: 1px solid rgba(210,153,34,.3); }
+.badge-red { background: rgba(248,81,73,.2); color: var(--red); border: 1px solid rgba(248,81,73,.3); }
+.badge-purple { background: rgba(188,140,255,.2); color: var(--purple); border: 1px solid rgba(188,140,255,.3); }
+.badge-orange { background: rgba(240,136,62,.2); color: var(--orange); border: 1px solid rgba(240,136,62,.3); }
+
+h2 { font-size: 20px; font-weight: 600; color: #fff; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 15px; font-weight: 600; color: #e6edf3; margin-bottom: 10px; }
+section { margin-bottom: 48px; }
+
+.card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r); padding: 20px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+/* Pipeline diagram */
+#pipeline-svg { width: 100%; height: 420px; }
+
+/* Host cards */
+.host-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
+.host-card { background: var(--bg2); border: 2px solid var(--border); border-radius: var(--r); padding: 16px; cursor: pointer; transition: border-color .2s, background .2s; }
+.host-card:hover { border-color: var(--accent); background: var(--bg3); }
+.host-card.selected { border-color: var(--accent); background: #1a2233; }
+.host-card h3 { font-size: 14px; margin-bottom: 8px; }
+.host-card .host-id { font-family: var(--font); font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+.cap-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 2px 0; border-bottom: 1px solid var(--border); }
+.cap-row:last-child { border-bottom: none; }
+.tick { color: var(--green); font-size: 14px; }
+.cross { color: var(--red); font-size: 14px; }
+.dash { color: var(--muted); font-size: 14px; }
+
+/* Capability matrix table */
+.matrix-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.matrix-table th { background: var(--bg3); color: var(--muted); font-weight: 600; text-align: center; padding: 10px 8px; border: 1px solid var(--border); font-family: var(--font); font-size: 11px; position: sticky; top: 0; z-index: 10; }
+.matrix-table th.row-header { text-align: left; }
+.matrix-table td { padding: 8px 10px; border: 1px solid var(--border); text-align: center; vertical-align: middle; }
+.matrix-table tr:hover td { background: rgba(88,166,255,.05); }
+.matrix-table td.row-label { text-align: left; color: var(--muted); font-family: var(--font); font-size: 11px; white-space: nowrap; }
+.cell-native { background: rgba(63,185,80,.1); color: var(--green); }
+.cell-drop { background: rgba(248,81,73,.08); color: var(--red); }
+.cell-merge { background: rgba(88,166,255,.1); color: var(--accent); }
+
+/* Scrollable container */
+.table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r); }
+
+/* Lint passes */
+.lint-list { display: flex; flex-direction: column; gap: 8px; }
+.lint-item { display: flex; gap: 12px; align-items: flex-start; background: var(--bg3); border-radius: 6px; padding: 10px 14px; border-left: 3px solid var(--accent); }
+.lint-code { font-family: var(--font); font-size: 11px; color: var(--accent); white-space: nowrap; }
+.lint-desc { font-size: 13px; color: var(--text); }
+.lint-escalates { font-size: 11px; color: var(--yellow); margin-top: 2px; }
+
+/* Source layout tree */
+.file-tree { font-family: var(--font); font-size: 13px; line-height: 2; }
+.file-tree .dir { color: var(--accent); }
+.file-tree .file { color: var(--text); }
+.file-tree .comment { color: var(--muted); font-size: 11px; }
+.file-tree .indent { padding-left: 20px; }
+.file-tree .indent2 { padding-left: 40px; }
+
+/* Detail panel */
+#host-detail { display: none; background: var(--bg2); border: 1px solid var(--accent); border-radius: var(--r); padding: 20px; margin-top: 16px; }
+#host-detail.visible { display: block; }
+#host-detail h3 { color: #fff; font-size: 16px; margin-bottom: 14px; }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.detail-section h4 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+.field { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.field:last-child { border-bottom: none; }
+.field-key { color: var(--muted); }
+.field-val { color: var(--text); font-family: var(--font); }
+
+/* Kinds grid */
+.kinds-grid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 6px; margin-top: 12px; }
+.kind-cell { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 8px 6px; text-align: center; font-size: 10px; }
+.kind-cell .kind-name { color: var(--muted); margin-bottom: 4px; font-family: var(--font); }
+.kind-cell .kind-disp { font-weight: 700; font-size: 11px; }
+.kind-cell.native { border-color: var(--green); }
+.kind-cell.native .kind-disp { color: var(--green); }
+.kind-cell.drop-c { border-color: var(--red); }
+.kind-cell.drop-c .kind-disp { color: var(--red); }
+.kind-cell.merge { border-color: var(--accent); }
+.kind-cell.merge .kind-disp { color: var(--accent); }
+
+/* Commands */
+.cmd-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cmd-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid var(--border); color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; }
+.cmd-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.cmd-table tr:last-child td { border-bottom: none; }
+.cmd-table td:first-child { font-family: var(--font); font-size: 12px; white-space: nowrap; color: var(--orange); }
+
+/* Interactive elements */
+.tab-bar { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.tab { padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; font-size: 13px; color: var(--muted); transition: .15s; }
+.tab.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* Tooltip */
+.tooltip-wrap { position: relative; display: inline-block; }
+.tooltip-wrap:hover .tooltip { display: block; }
+.tooltip { display: none; position: absolute; z-index: 100; bottom: 125%; left: 50%; transform: translateX(-50%); background: #000; color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 11px; white-space: nowrap; pointer-events: none; }
+
+/* Skill source layout diagram */
+.skill-form { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-bottom: 8px; font-family: var(--font); font-size: 12px; }
+.skill-form.active-form { border-color: var(--green); }
+.skill-form.dir-form { border-color: var(--accent); }
+
+/* Stats bar */
+.stats { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 24px; }
+.stat { text-align: center; }
+.stat-num { font-size: 32px; font-weight: 700; color: var(--accent); line-height: 1; }
+.stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <h1>weaft — System Report</h1>
+  <div class="subtitle">Capability-aware compiler for agent skills &amp; subagents · v0.1 · Branch: <code>claude/weaft-v0-1-spec-pKbqm</code></div>
+  <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+    <span class="badge badge-green">6 hosts</span>
+    <span class="badge badge-blue">9 artifact kinds</span>
+    <span class="badge badge-purple">7 pipeline stages</span>
+    <span class="badge badge-orange">6 lint passes</span>
+    <span class="badge badge-yellow">3 crates</span>
+  </div>
+</header>
+
+<!-- Stats -->
+<div class="stats">
+  <div class="stat"><div class="stat-num">6</div><div class="stat-label">Target hosts</div></div>
+  <div class="stat"><div class="stat-num">9</div><div class="stat-label">Artifact kinds</div></div>
+  <div class="stat"><div class="stat-num">7</div><div class="stat-label">Pipeline stages</div></div>
+  <div class="stat"><div class="stat-num">3</div><div class="stat-label">Crates</div></div>
+  <div class="stat"><div class="stat-num">6</div><div class="stat-label">Lint passes</div></div>
+  <div class="stat"><div class="stat-num">249</div><div class="stat-label">Tests</div></div>
+</div>
+
+<!-- SECTION 1: Architecture -->
+<section>
+  <h2>🏗️ Architecture — Three-Crate Workspace</h2>
+  <div class="card" style="margin-bottom:16px;">
+    <p style="color:var(--muted); margin-bottom:14px;">Dependency direction: <code>weaft-cli → weaft-targets → weaft-core</code>. Core has no internal deps.</p>
+    <svg width="100%" height="120" viewBox="0 0 900 120">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#58a6ff"/>
+        </marker>
+      </defs>
+      <!-- Boxes -->
+      <rect x="10" y="30" width="220" height="60" rx="8" fill="#1c2128" stroke="#58a6ff" stroke-width="2"/>
+      <text x="120" y="55" text-anchor="middle" fill="#58a6ff" font-size="14" font-weight="700">weaft-cli</text>
+      <text x="120" y="74" text-anchor="middle" fill="#8b949e" font-size="11">commands/ (build, lint, preview, tokens…)</text>
+      <rect x="340" y="30" width="220" height="60" rx="8" fill="#1c2128" stroke="#bc8cff" stroke-width="2"/>
+      <text x="450" y="55" text-anchor="middle" fill="#bc8cff" font-size="14" font-weight="700">weaft-targets</text>
+      <text x="450" y="74" text-anchor="middle" fill="#8b949e" font-size="11">Target trait + 6 host backends</text>
+      <rect x="670" y="30" width="220" height="60" rx="8" fill="#1c2128" stroke="#3fb950" stroke-width="2"/>
+      <text x="780" y="55" text-anchor="middle" fill="#3fb950" font-size="14" font-weight="700">weaft-core</text>
+      <text x="780" y="74" text-anchor="middle" fill="#8b949e" font-size="11">IR · capability · parse · compile · lint</text>
+      <!-- Arrows -->
+      <line x1="230" y1="60" x2="338" y2="60" stroke="#58a6ff" stroke-width="2" marker-end="url(#arr)"/>
+      <line x1="560" y1="60" x2="668" y2="60" stroke="#58a6ff" stroke-width="2" marker-end="url(#arr)"/>
+      <text x="284" y="52" text-anchor="middle" fill="#8b949e" font-size="10">uses</text>
+      <text x="614" y="52" text-anchor="middle" fill="#8b949e" font-size="10">uses</text>
+    </svg>
+  </div>
+
+  <div class="grid3">
+    <div class="card">
+      <h3 style="color:#58a6ff;">weaft-core (library)</h3>
+      <div style="font-size:12px; color:var(--muted); line-height:1.8;">
+        <div><code>capability.rs</code> — host capability matrix (the load-bearing artifact)</div>
+        <div><code>ir.rs</code> — Project, Artifact, ArtifactMeta IR</div>
+        <div><code>parse.rs</code> — disk → IR (flat + directory skill forms)</div>
+        <div><code>compile.rs</code> — minijinja render w/ strict mode</div>
+        <div><code>kind.rs</code> — closed 9-variant ArtifactKind</div>
+        <div><code>pipeline/</code> — resolve, map, emit stages</div>
+        <div><code>lint/</code> — 6 lint passes</div>
+        <div><code>tokens.rs, budget.rs, diag.rs, params.rs</code></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="color:#bc8cff;">weaft-targets (backends)</h3>
+      <div style="font-size:12px; color:var(--muted); line-height:1.8;">
+        <div><code>claude_code.rs</code> — SKILL.md + agents/*.md</div>
+        <div><code>cursor.rs</code> — .mdc rules + agents/*.md</div>
+        <div><code>agents_md.rs</code> — merged AGENTS.md</div>
+        <div><code>opencode.rs</code> — .opencode/skills & agents</div>
+        <div><code>codex.rs</code> — Agent Skills std + TOML agents</div>
+        <div><code>gemini_cli.rs</code> — all-Drop (unresearched)</div>
+        <div><code>serialize/</code> — YAML, TOML, JSON helpers</div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="color:#f0883e;">weaft-cli (binary)</h3>
+      <div style="font-size:12px; color:var(--muted); line-height:1.8;">
+        <div><code>commands/build.rs</code> — compile_target, asset copy</div>
+        <div><code>commands/lint.rs</code> — aggregate lint runner</div>
+        <div><code>commands/preview.rs</code> — stdout render</div>
+        <div><code>commands/tokens.rs</code> — token usage report</div>
+        <div><code>commands/targets.rs</code> — print matrix</div>
+        <div><code>commands/init.rs</code> — project scaffold</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 2: Pipeline -->
+<section id="pipeline-section">
+<style>
+/* ── Pipeline interactive styles ── */
+.pl-flow { position: relative; width: 100%; overflow-x: auto; padding: 16px 0 8px; }
+.pl-stages { display: flex; align-items: center; gap: 0; min-width: 860px; }
+.pl-connector { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
+.pl-arrow-line { width: 100%; height: 2px; background: var(--border); position: relative; }
+.pl-arrow-line::after { content: ''; position: absolute; right: -6px; top: -4px; border: 5px solid transparent; border-left-color: var(--border); }
+.pl-arrow-label { font-size: 9px; color: var(--muted); font-family: var(--font); margin-top: 3px; white-space: nowrap; text-align: center; }
+.pl-connector.active .pl-arrow-line { background: var(--accent); }
+.pl-connector.active .pl-arrow-line::after { border-left-color: var(--accent); }
+.pl-connector.active .pl-arrow-label { color: var(--accent); }
+
+.pl-node { min-width: 110px; cursor: pointer; border-radius: 8px; padding: 10px 10px 8px; border: 2px solid var(--border); background: var(--bg2); transition: border-color .15s, background .15s, box-shadow .15s; text-align: center; position: relative; user-select: none; }
+.pl-node:hover { border-color: var(--accent); background: var(--bg3); }
+.pl-node.active { border-color: var(--accent); background: #121a2e; box-shadow: 0 0 12px rgba(88,166,255,.25); }
+.pl-node .pl-num { font-size: 10px; color: var(--muted); font-family: var(--font); margin-bottom: 3px; }
+.pl-node .pl-name { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+.pl-node .pl-file { font-size: 10px; font-family: var(--font); color: var(--muted); }
+.pl-node .pl-crate-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+
+/* Crate ownership bar */
+.pl-crate-bar { display: flex; margin-top: 12px; border-radius: 6px; overflow: hidden; font-size: 11px; }
+.pl-crate-seg { padding: 5px 10px; text-align: center; flex: 1; font-weight: 600; }
+
+/* Detail panel */
+.pl-detail { margin-top: 16px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.pl-detail-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.pl-detail-header .pl-stage-badge { font-family: var(--font); font-size: 11px; padding: 2px 8px; border-radius: 4px; }
+.pl-detail-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+.pl-detail-col { padding: 16px; }
+.pl-detail-col + .pl-detail-col { border-left: 1px solid var(--border); }
+.pl-detail-col h4 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 10px; }
+.pl-type-box { background: var(--bg3); border-radius: 6px; padding: 10px 12px; font-family: var(--font); font-size: 11px; line-height: 1.8; overflow-x: auto; white-space: pre; border-left: 3px solid; }
+.pl-algo { font-size: 12px; color: var(--text); line-height: 1.7; }
+.pl-algo .pl-step { display: flex; gap: 8px; margin-bottom: 8px; }
+.pl-algo .pl-step-num { background: var(--bg3); border-radius: 4px; padding: 1px 6px; font-family: var(--font); font-size: 10px; color: var(--muted); flex-shrink: 0; margin-top: 2px; height: fit-content; }
+.pl-edge-label { display: inline-block; padding: 1px 6px; border-radius: 4px; font-family: var(--font); font-size: 10px; font-weight: 600; }
+
+/* Trace panel */
+.pl-trace { padding: 16px; }
+.pl-trace-controls { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.pl-trace-btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--accent); background: transparent; color: var(--accent); font-size: 12px; cursor: pointer; transition: background .15s; }
+.pl-trace-btn:hover { background: rgba(88,166,255,.12); }
+.pl-trace-btn.running { border-color: var(--red); color: var(--red); }
+.pl-trace-select { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 12px; padding: 5px 10px; }
+.pl-trace-steps { display: flex; flex-direction: column; gap: 8px; }
+.pl-trace-step { border-radius: 6px; border: 1px solid var(--border); overflow: hidden; opacity: .35; transition: opacity .3s, border-color .3s; }
+.pl-trace-step.lit { opacity: 1; border-color: var(--accent); }
+.pl-trace-step-header { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--bg3); cursor: pointer; }
+.pl-trace-step-header:hover { background: #222b38; }
+.pl-trace-step-num { font-family: var(--font); font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--bg); }
+.pl-trace-step-name { font-size: 12px; font-weight: 700; }
+.pl-trace-step-summary { font-size: 11px; color: var(--muted); font-family: var(--font); margin-left: auto; }
+.pl-trace-step-body { display: none; padding: 12px; background: var(--bg2); font-family: var(--font); font-size: 11px; line-height: 1.8; overflow-x: auto; white-space: pre; }
+.pl-trace-step.open .pl-trace-step-body { display: block; }
+.pl-trace-step.open .pl-trace-step-header { border-bottom: 1px solid var(--border); }
+
+/* Progress dot on the pipeline during trace */
+.pl-packet { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); top: 50%; transform: translateY(-50%); transition: left .4s ease-in-out; display: none; }
+
+/* Key types legend */
+.pl-types-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+.pl-type-pill { font-size: 10px; font-family: var(--font); padding: 2px 8px; border-radius: 10px; border: 1px solid; }
+
+/* Tabs */
+.pl-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); background: var(--bg3); }
+.pl-tab { padding: 8px 16px; font-size: 12px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--muted); transition: .15s; }
+.pl-tab.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
+.pl-tab-panel { display: none; }
+.pl-tab-panel.active { display: block; }
+
+/* Special token for inline type highlights */
+.ty { font-family: var(--font); font-size: 11px; padding: 1px 5px; border-radius: 3px; }
+.ty-struct { background: rgba(63,185,80,.15); color: #3fb950; }
+.ty-enum { background: rgba(210,153,34,.15); color: #d29922; }
+.ty-fn { background: rgba(88,166,255,.15); color: #58a6ff; }
+.ty-str { background: rgba(188,140,255,.15); color: #bc8cff; }
+</style>
+
+<h2>🔄 Compilation Pipeline</h2>
+<div class="card" style="padding: 20px;">
+
+  <!-- Flow diagram -->
+  <div class="pl-flow">
+    <div class="pl-stages" id="pl-stages">
+
+      <!-- Node 1: Source -->
+      <div class="pl-node" id="pln-source" onclick="selectStage('source')" style="border-color:#3fb950;">
+        <div class="pl-num">① SOURCE</div>
+        <div class="pl-name" style="color:#3fb950;">Source</div>
+        <div class="pl-file">disk files</div>
+      </div>
+
+      <div class="pl-connector" id="plc-source-parse">
+        <div class="pl-arrow-line"></div>
+        <div class="pl-arrow-label">raw bytes</div>
+      </div>
+
+      <!-- Node 2: Parse -->
+      <div class="pl-node" id="pln-parse" onclick="selectStage('parse')">
+        <div class="pl-num">② CORE</div>
+        <div class="pl-name" style="color:#3fb950;">Parse</div>
+        <div class="pl-file">parse.rs</div>
+      </div>
+
+      <div class="pl-connector" id="plc-parse-resolve">
+        <div class="pl-arrow-line"></div>
+        <div class="pl-arrow-label">Project IR</div>
+      </div>
+
+      <!-- Node 3: Resolve -->
+      <div class="pl-node" id="pln-resolve" onclick="selectStage('resolve')">
+        <div class="pl-num">③ CORE</div>
+        <div class="pl-name" style="color:#3fb950;">Resolve</div>
+        <div class="pl-file">pipeline/resolve.rs</div>
+      </div>
+
+      <div class="pl-connector" id="plc-resolve-render">
+        <div class="pl-arrow-line"></div>
+        <div class="pl-arrow-label">Resolved</div>
+      </div>
+
+      <!-- Node 4: Render -->
+      <div class="pl-node" id="pln-render" onclick="selectStage('render')">
+        <div class="pl-num">④ CORE</div>
+        <div class="pl-name" style="color:#3fb950;">Render</div>
+        <div class="pl-file">compile.rs</div>
+      </div>
+
+      <div class="pl-connector" id="plc-render-map">
+        <div class="pl-arrow-line"></div>
+        <div class="pl-arrow-label">body: String</div>
+      </div>
+
+      <!-- Node 5: Map -->
+      <div class="pl-node" id="pln-map" onclick="selectStage('map')">
+        <div class="pl-num">⑤ CORE</div>
+        <div class="pl-name" style="color:#3fb950;">Map</div>
+        <div class="pl-file">pipeline/map.rs</div>
+      </div>
+
+      <div class="pl-connector" id="plc-map-serialize">
+        <div class="pl-arrow-line"></div>
+        <div class="pl-arrow-label">MappedFields</div>
+      </div>
+
+      <!-- Node 6: Serialize -->
+      <div class="pl-node" id="pln-serialize" onclick="selectStage('serialize')">
+        <div class="pl-num">⑥ TARGETS</div>
+        <div class="pl-name" style="color:#bc8cff;">Serialize</div>
+        <div class="pl-file">weaft-targets/</div>
+      </div>
+
+      <div class="pl-connector" id="plc-serialize-emit">
+        <div class="pl-arrow-line"></div>
+        <div class="pl-arrow-label">framed: String</div>
+      </div>
+
+      <!-- Node 7: Emit + Merge -->
+      <div class="pl-node" id="pln-emit" onclick="selectStage('emit')">
+        <div class="pl-num">⑦ CLI</div>
+        <div class="pl-name" style="color:#d29922;">Emit + Merge</div>
+        <div class="pl-file">commands/build.rs</div>
+      </div>
+
+    </div>
+
+    <!-- Lint loop label underneath -->
+    <div style="display:flex; align-items:center; gap:8px; margin-top:12px; padding: 6px 12px; background:rgba(248,81,73,.07); border: 1px solid rgba(248,81,73,.2); border-radius:6px; font-size:11px; color:var(--red);">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M14 2 L14 6 L10 6" stroke="#f85149" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M14 6 A6 6 0 1 1 2 8" stroke="#f85149" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+      <strong>Pre-build lint gate</strong> — <span style="color:var(--muted);">lint::run() runs before compile: required · targets · layout · ask_user · unused · budget. Fails fast on errors; --strict escalates warnings.</span>
+    </div>
+
+    <!-- Capability matrix label -->
+    <div style="display:flex; align-items:center; gap:8px; margin-top:8px; padding: 6px 12px; background:rgba(88,166,255,.07); border: 1px solid rgba(88,166,255,.2); border-radius:6px; font-size:11px; color:var(--accent);">
+      <svg width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="2" stroke="#58a6ff" stroke-width="1.5" fill="none"/><line x1="1" y1="6" x2="15" y2="6" stroke="#58a6ff" stroke-width="1"/><line x1="6" y1="1" x2="6" y2="15" stroke="#58a6ff" stroke-width="1"/></svg>
+      <strong>HostCapabilities matrix</strong> — <span style="color:var(--muted);">drives every stage decision: Resolve reads <code>kinds[artifact.kind].disposition</code>; Render exposes <code>{{ host.* }}</code>; Map reads <code>cell.field_map</code>; Emit reads <code>cell.layout.path_template</code>.</span>
+    </div>
+  </div>
+
+  <!-- Crate ownership bar -->
+  <div class="pl-crate-bar" style="margin-top:12px; margin-bottom:16px;">
+    <div class="pl-crate-seg" style="background:rgba(88,166,255,.1); color:#58a6ff; flex:0 0 auto; width:110px;">source (disk)</div>
+    <div class="pl-crate-seg" style="background:rgba(63,185,80,.12); color:#3fb950; flex:4;">weaft-core (parse · resolve · render · map)</div>
+    <div class="pl-crate-seg" style="background:rgba(188,140,255,.12); color:#bc8cff; flex:1;">weaft-targets (serialize)</div>
+    <div class="pl-crate-seg" style="background:rgba(210,153,34,.12); color:#d29922; flex:1;">weaft-cli (emit · merge · write)</div>
+  </div>
+
+  <!-- Detail + Trace tabs -->
+  <div class="pl-detail" id="pl-detail-panel">
+    <div class="pl-tabs">
+      <div class="pl-tab active" onclick="switchPipelineTab('detail')">Stage Detail</div>
+      <div class="pl-tab" onclick="switchPipelineTab('trace')">Live Trace (safe-deleter → claude-code)</div>
+    </div>
+
+    <!-- Detail tab -->
+    <div class="pl-tab-panel active" id="pl-tp-detail">
+      <div class="pl-detail-header" id="pl-detail-header">
+        <span class="pl-stage-badge" id="pl-badge" style="background:rgba(88,166,255,.15); color:var(--accent);">①</span>
+        <span id="pl-detail-title" style="font-size:15px; font-weight:700; color:#fff;">Click a stage above to explore</span>
+        <span id="pl-detail-file" style="font-size:11px; font-family:var(--font); color:var(--muted); margin-left:auto;"></span>
+      </div>
+      <div class="pl-detail-body" id="pl-detail-body">
+        <div class="pl-detail-col">
+          <h4>Input → Output Types</h4>
+          <div id="pl-io-box" class="pl-type-box" style="border-color:var(--border); color:var(--muted);">← select a stage</div>
+        </div>
+        <div class="pl-detail-col">
+          <h4>Algorithm</h4>
+          <div id="pl-algo-box" class="pl-algo" style="color:var(--muted);">Select a stage node above to see its algorithm, key invariants, and edge cases.</div>
+          <div id="pl-inv-box" style="margin-top:12px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trace tab -->
+    <div class="pl-tab-panel" id="pl-tp-trace">
+      <div class="pl-trace">
+        <div class="pl-trace-controls">
+          <button class="pl-trace-btn" id="pl-run-btn" onclick="runTrace()">▶ Run Trace</button>
+          <select class="pl-trace-select" id="pl-host-sel" onchange="rebuildTrace()">
+            <option value="claude">claude-code</option>
+            <option value="cursor">cursor</option>
+            <option value="agents-md">agents-md</option>
+          </select>
+          <span style="font-size:12px; color:var(--muted);">Compiling <strong style="color:var(--text);">safe-deleter.md</strong> → <strong id="pl-host-label" style="color:var(--accent);">claude-code</strong></span>
+        </div>
+        <div class="pl-trace-steps" id="pl-trace-steps"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</section>
+
+<script>
+// ── Pipeline stage data ──────────────────────────────────────────────────────
+
+const STAGE_DATA = {
+  source: {
+    num: '①', name: 'Source', file: 'disk: weaft.yaml, skills/*.md, agents/*.md, fragments/*.j2',
+    color: '#3fb950',
+    io: `// Input: file paths on disk\n\n<weaft.yaml>          // project manifest (YAML)\nskills/safe-deleter.md // flat skill  ← YAML frontmatter + Jinja body\nskills/greeter/SKILL.md// dir skill   ← ADR-0007 directory form\n  phases/research.md   //   include-able phase file\nagents/code-reviewer.md// subagent\nfragments/footer.md.j2 // shared Jinja partial\n\n// Output: raw bytes, zero parsing yet`,
+    algo: [
+      ['Disk scan', 'weaft.yaml is located by --manifest-path. All supported directories are enumerated.'],
+      ['Two skill forms', 'skills/ scanned for both flat (*.md) and directory (*/SKILL.md). Coexistence: directory wins, flat is shadowed.'],
+      ['Fragment discovery', 'fragments/ enumerated separately — files here are pre-registered as named templates later in Render.'],
+      ['No parsing yet', 'No YAML or Jinja processing happens here — this is a pure directory walk and file-read phase.'],
+    ],
+    invariants: [
+      { label: 'C-SOURCE-LAYOUT', text: 'Only 5 prose folders (skills, agents, instructions, commands, hooks) + 4 manifest singletons (settings, mcp_servers, ignore, plugin).' },
+      { label: 'ADR-0007', text: 'Directory skill wins over flat when stems match. Lint fires duplicate_skill warning (error under --strict).' },
+    ],
+  },
+  parse: {
+    num: '②', name: 'Parse', file: 'crates/weaft-core/src/parse.rs',
+    color: '#3fb950',
+    io: `// Input: raw file bytes\n// Output:\nProject {\n  info: ProjectInfo {\n    name: String,\n    version: String,\n    targets: Targets { supported: Vec<String>, overrides },\n    parameters: BTreeMap<String, Parameter>,\n    settings: Option<Value>,     // singleton\n    mcp_servers: BTreeMap<String, Value>, // singleton\n    ignore: Vec<String>,         // singleton\n    plugin: Option<PluginIdentity>,\n  },\n  artifacts: Vec<Artifact> {    // every compiled thing\n    kind: ArtifactKind,          // Skill | Subagent | Instruction | …\n    frontmatter: ArtifactMeta {\n      name: String,\n      description: String,\n      targets: Targets,           // per-target overrides stay HERE (Fix 1)\n      fields: BTreeMap<String, Value>, // top-level opaque fields\n    },\n    body: String,                // raw Jinja source\n    source_path: PathBuf,\n  },\n  root: PathBuf,\n}`,
+    algo: [
+      ['weaft.yaml deserialization', 'serde_yaml_ng deserializes the manifest into ProjectInfo. Singleton keys (settings, mcp_servers, ignore, plugin) land as opaque Value blobs.'],
+      ['Frontmatter split', 'Each .md file is split on the first --- / --- fence. Top block → serde_yaml_ng → ArtifactMeta. Rest → body String.'],
+      ['FieldSource invariant (Fix 1)', 'targets.claude-code.allowed_tools stays under Targets::overrides (TargetOverride read site). Subagent top-level tools lands in ArtifactMeta::fields (TopLevel read site). This split is the keystone of map.rs.'],
+      ['Singleton synthesis', 'Manifest singletons → Artifact::from_singleton(kind, name, value): empty body, payload packed under "__singleton" in fields.'],
+      ['Sort', 'artifacts sorted by (kind.index(), source_path) for deterministic output.'],
+    ],
+    invariants: [
+      { label: 'Fix 1', text: 'targets.* override blocks must NEVER flatten into fields. The serde struct has targets: Targets named (not flattened), so serde routes them correctly.' },
+      { label: 'ArtifactKind', text: 'Closed enum of 9 variants. Extending it is a governance act — every pipeline stage matches it exhaustively.' },
+    ],
+  },
+  resolve: {
+    num: '③', name: 'Resolve', file: 'crates/weaft-core/src/pipeline/resolve.rs',
+    color: '#3fb950',
+    io: `// Input: (Artifact, HostCapabilities)\n// Output:\nResolved<'a> {\n  artifact_kind: ArtifactKind, // original kind, unchanged\n  effective_kind: ArtifactKind,// fold target (or same as artifact_kind)\n  disposition: Disposition,    // Native | Fold { into } | Drop\n  cell: &'a KindCapabilities { // the cell that governs emission\n    kind: ArtifactKind,\n    disposition: Disposition,\n    layout: Layout {\n      path_template: &'static str, // e.g. "skills/{name}/SKILL.md"\n      merge: bool,\n    },\n    format: SerFormat,         // YamlFrontmatterMarkdown | Mdc | Toml | …\n    field_map: FieldMap,       // ordered FieldRule slice\n    budget: Option<Budget>,\n  },\n  host_id: &'static str,       // needed by map for TargetOverride reads\n}`,
+    algo: [
+      ['Cell lookup', 'host.kinds.get(artifact.kind) — O(1) array index via kind.index() bijection onto 0..8.'],
+      ['Native / Drop', 'effective_kind = artifact_kind, cell = that kind\'s cell. Drop: pipeline skips emission, emits a warning instead.'],
+      ['Fold { into }', 'effective_kind = into, cell = host.kinds.get(into) (the target\'s cell, not the source\'s). Used for merged files like AGENTS.md.'],
+      ['≤1-hop invariant', 'resolve_checked() enforces fold target must be Native. A Fold→Fold chain is a hard WeftError (C-SUPPORT-DISPOSITION).'],
+      ['Pure function', 'No I/O, no templates. Just matrix data + kind index. Downstream stages read Resolved to avoid re-looking up the cell.'],
+    ],
+    invariants: [
+      { label: 'C-SUPPORT-DISPOSITION', text: 'Fold chains are forbidden. Fold target must be Native. Enforced statically by matrix tests and at runtime by resolve_checked.' },
+      { label: 'host_id carry-through', text: 'host_id is on Resolved so the map stage can call artifact.frontmatter.targets.override_for(host_id) without re-receiving the host.' },
+    ],
+  },
+  render: {
+    num: '④', name: 'Render', file: 'crates/weaft-core/src/compile.rs',
+    color: '#3fb950',
+    io: `// Input: (Artifact, HostCapabilities, project_root: &Path)\n// Output: String  (rendered body, Jinja expanded)\n\n// Template context injected:\nhost: &HostCapabilities   // {{ host.permission_model }}, etc.\nparams: BTreeMap<String,Value> // {{ params.mode }}, etc.\n\n// Loader roots (ADR-0007):\n// flat skill  → loader_root = project_root\n// dir  skill  → loader_root = source_path.parent() = skills/<name>/\n// agents / instructions → loader_root = project_root\n\n// Fragment pre-registration:\n// project_root/fragments/**  scanned once at env setup,\n// registered as named templates via env.add_template_owned(name, body)\n// Named templates resolve BEFORE the loader (minijinja loader.rs:125)`,
+    algo: [
+      ['skill_loader_root()', 'source_path.file_name() == "SKILL.md" → directory skill → loader_root = source_path.parent(). Otherwise → flat skill → project_root.'],
+      ['Fragment scan', 'WalkDir::new(project_root/fragments/) scanned at env setup. Each file registered via env.add_template_owned("fragments/...", body + extra_newline).'],
+      ['Newline compensation', 'minijinja strips one trailing \\n at lex time. Fragment bodies ending in \\n get an extra \\n appended before registration so {% include %} output is byte-identical.'],
+      ['UndefinedBehavior::Strict', 'Any {{ host.unknown_field }} is a hard build error, not a silent empty string. Protects against capability typos.'],
+      ['env.add_template("__ask__", ASK_J2)', 'The built-in ask macro is a const &\'static str registered via add_template (not add_template_owned) because it\'s \'static.'],
+    ],
+    invariants: [
+      { label: 'Resolution priority', text: 'Named templates (fragments/, __ask__) resolve before the path_loader. So {% include "fragments/x.md" %} always hits the table, never the filesystem loader.' },
+      { label: 'Strict mode', text: 'A typo in {{ host.* }} fails the build — never silently emits nothing. This is the "fails loud" guarantee.' },
+    ],
+  },
+  map: {
+    num: '⑤', name: 'Map', file: 'crates/weaft-core/src/pipeline/map.rs',
+    color: '#3fb950',
+    io: `// Input: (Resolved, Artifact, &dyn FieldTransformSet)\n// Output:\ntype MappedFields = Vec<(String, Value)>;\n// ordered (emitted_key, value) pairs — deterministic C-DETERMINISM\n\n// FieldRule anatomy:\nFieldRule {\n  canonical: FieldSource,  // WHERE to read the value:\n    TargetOverride("key"), //   → targets.<host_id>["key"]\n    TopLevel("key"),       //   → frontmatter.name/description\n                           //     or frontmatter.fields["key"]\n  emitted: Option<&str>,   // WHAT key to emit (None = drop)\n  transform: bool,         // true → delegate to FieldTransformSet hook\n}\n\n// Recasing examples:\n// allowed_tools  →  "allowed-tools"   (hyphen, Claude)\n// always_apply   →  "alwaysApply"     (camelCase, Cursor)\n// Cursor Skill omits "name" entirely  (emitted: None on that rule)`,
+    algo: [
+      ['Singleton fast-path', 'If cell.field_map is empty (Settings/McpServer cells) → expand_singleton(): reads artifact.frontmatter.fields["__singleton"] mapping pairs verbatim.'],
+      ['FieldRule iteration', 'Walk field_map in declaration order (= emission order, C-DETERMINISM). Skip rules with emitted: None (drop tier of ADR-0002).'],
+      ['read_canonical()', 'TargetOverride → artifact.frontmatter.targets.override_for(host_id)? then get key. TopLevel("name"/"description") → structural fields. TopLevel(other) → fields map.'],
+      ['Transform hook', 'If rule.transform == true: pass current value to FieldTransformSet::transform(). The hook may override, pass through, or drop. Default NoTransforms passes through.'],
+      ['Absent values omitted', 'None values are silently dropped (matching v1 frontmatter() behavior). Present values emitted under the recased emitted key.'],
+    ],
+    invariants: [
+      { label: 'Fix 1 (core)', text: 'Skill fields are TargetOverride-sourced (authored under targets.claude-code). Subagent fields are TopLevel-sourced. This source distinction is why the two authoring shapes are different in weaft.yaml.' },
+      { label: 'C-DETERMINISM', text: 'Output order = field_map declaration order (a &\'static [FieldRule] slice, not a HashMap). Codex TOML and AGENTS.md both need stable output for diffing.' },
+    ],
+  },
+  serialize: {
+    num: '⑥', name: 'Serialize', file: 'crates/weaft-targets/src/{claude_code,cursor,agents_md,…}.rs',
+    color: '#bc8cff',
+    io: `// Input: (MappedFields, rendered_body: String, SerFormat, FrontmatterDialect)\n// Output: framed: String  (the final file content as text)\n\n// SerFormat variants:\nYamlFrontmatterMarkdown  // --- \\n key: val \\n --- \\n body\nMdc                      // same as above (Cursor .mdc extension)\nPlainMarkdown            // body only, no frontmatter block\nToml                     // TOML key=val document (Codex agents)\nJson                     // {\"key\": val} (Settings, MCP JSON)\n\n// FrontmatterDialect variants:\nYamlDashes  // ---\\n...\\n---  (Claude, Cursor, opencode, codex skills)\nToml        // TOML document (Codex subagent .toml files)\nNone        // No frontmatter (agents-md, gemini-cli)`,
+    algo: [
+      ['Format dispatch', 'SerFormat determines the serializer: YAML serializer (serde_yaml_ng) for most hosts, TOML serializer for Codex agents, JSON for settings/MCP.'],
+      ['YAML emission', 'MappedFields Vec is written in order. Key casing is already resolved by map stage — serializer emits whatever key it receives.'],
+      ['TOML special path (Codex)', 'developer_instructions field is flagged transform:true. The FieldTransformSet impl wraps the rendered body as a TOML string value in that field.'],
+      ['JSON singleton', 'Settings and McpServer cells use SerFormat::Json. The expand_singleton MappedFields are JSON-serialized directly.'],
+      ['Body append', 'For YAML/Mdc formats: framed = frontmatter_block + "\\n" + rendered_body. PlainMarkdown: framed = rendered_body. TOML: rendered_body goes into developer_instructions.'],
+    ],
+    invariants: [
+      { label: 'Key casing fidelity', text: 'allowed-tools (hyphen) and alwaysApply (camelCase) casing comes from FieldRule.emitted in the matrix — the serializer never transforms keys, it trusts the map stage.' },
+      { label: 'Cursor Skill omits name', text: 'The Cursor Skill field_map has no rule for "name" (emitted: None on that slot). So the .mdc frontmatter has no name: field — matches the v1 snapshot exactly.' },
+    ],
+  },
+  emit: {
+    num: '⑦', name: 'Emit + Merge', file: 'crates/weaft-cli/src/commands/build.rs + pipeline/emit.rs',
+    color: '#d29922',
+    io: `// Input: (Resolved, artifact_name: &str, framed: String)\n// Output:\nEmittedSpec {\n  relative_path: PathBuf,  // e.g. "skills/safe-deleter/SKILL.md"\n  contents: String,         // the framed body\n  merge: bool,              // true → concatenate with same-path specs\n}\n\n// After emit: weaft-cli merge_and_check()\n//   merge:false → write contents to dist/<host>/<relative_path>\n//   merge:true  → concatenate all specs sharing same relative_path\n//                  e.g. all AGENTS.md sections → one dist/agents-md/AGENTS.md\n//   Budget check: hard byte budget applied to final merged bytes\n//                 (Codex AGENTS.md: 32 KiB hard limit)\n// Assets copy:\n//   if host.supports_assets: cp assets/ → dist/<host>/skills/<name>/`,
+    algo: [
+      ['Path templating', 'cell.layout.path_template.replace("{name}", artifact_name) → relative_path. E.g. "skills/{name}/SKILL.md" + "safe-deleter" → "skills/safe-deleter/SKILL.md". C-CAPABILITY-MATRIX: NO hardcoded format!() paths in backends.'],
+      ['Merge flag', 'merge = cell.layout.merge. Merge:true means this spec shares its path with other specs and they are concatenated in order (AGENTS.md pattern).'],
+      ['merge_and_check()', 'Collects all EmittedSpecs per host. Non-merge: written directly. Merge: specs grouped by path, contents concatenated, then hard byte budget applied.'],
+      ['Hard byte budget', 'Only Codex AGENTS.md carries a hard Budget(32768 bytes). Checked after merge so the full merged size is known. Fails the build if exceeded.'],
+      ['Asset copy', 'If host.supports_assets (claude-code, codex): assets/ directory is copied into dist/<host>/skills/<skill-name>/ for each skill that has assets.'],
+      ['dist/ structure', 'Each host writes to dist/<host-id>/. Relative paths from EmittedSpec are resolved against this root. Existing files overwritten on each build.'],
+    ],
+    invariants: [
+      { label: 'C-CAPABILITY-MATRIX', text: 'Paths come from matrix data (path_template). Backend files must never contain format!("skills/{}/SKILL.md", name) — that would duplicate the matrix.' },
+      { label: 'Pure emit stage', text: 'pipeline/emit.rs is pure — no I/O, no byte check. Only weaft-cli build.rs actually writes files and checks byte budgets (Fix 2/3).' },
+    ],
+  },
+};
+
+// ── Trace data ───────────────────────────────────────────────────────────────
+
+const TRACE_DATA = {
+  claude: {
+    host: 'claude-code',
+    steps: [
+      {
+        stage: 'source', num: '①', name: 'Source', color: '#3fb950',
+        summary: 'skills/safe-deleter.md on disk',
+        body: `File: skills/safe-deleter.md\n\n---\nname: safe-deleter\ndescription: Deletes files on request, but never destructively without confirmation.\ntargets:\n  claude-code:\n    allowed_tools:\n      - Read\n      - Bash\n    model: claude-sonnet-4-5\n  cursor:\n    globs: ["**/*"]\n    always_apply: false\n---\n\n# Safe Deleter\n\nYou delete files when asked. Always confirm first.\n\n## Permission step\n{% if host.permission_model == "explicit" -%}\n{{ host.ask_user_syntax }} List exactly which files you will delete and wait for an explicit "yes".\n{%- elif host.permission_model == "implicit" -%}\n{{ host.ask_user_syntax }} The host's own approval UI will gate the deletion — surface the full file list so the user can approve.\n{%- endif %}\n\n{% include "fragments/footer.md.j2" %}`,
+      },
+      {
+        stage: 'parse', num: '②', name: 'Parse', color: '#3fb950',
+        summary: 'Artifact { kind: Skill, frontmatter, body }',
+        body: `Artifact {\n  kind: ArtifactKind::Skill,\n  frontmatter: ArtifactMeta {\n    name: "safe-deleter",\n    description: "Deletes files on request, but never destructively without confirmation.",\n    targets: Targets {\n      supported: [],          // empty = all project targets\n      overrides: BTreeMap {\n        "claude-code": Mapping {    ← TargetOverride read site\n          "allowed_tools": ["Read", "Bash"],\n          "model": "claude-sonnet-4-5",\n        },\n        "cursor": Mapping {\n          "globs": ["**/*"],\n          "always_apply": false,\n        },\n      },\n    },\n    kind_override: None,\n    fields: BTreeMap {},    ← empty (skill fields live in targets, not here)\n  },\n  body: "# Safe Deleter\\n\\nYou delete files when asked. Always confirm first.\\n\\n## Permission step\\n{% if host.permission_model == \\"explicit\\" -%}\\n{{ host.ask_user_syntax }} List exactly which files …",\n  source_path: PathBuf("skills/safe-deleter.md"),\n}`,
+      },
+      {
+        stage: 'resolve', num: '③', name: 'Resolve', color: '#3fb950',
+        summary: 'Disposition::Native, cell=Skill cell for claude-code',
+        body: `// resolve(&artifact, &CLAUDE_CODE)\n\nResolved {\n  artifact_kind: ArtifactKind::Skill,\n  effective_kind: ArtifactKind::Skill, // Native → same\n  disposition: Disposition::Native,\n  cell: &KindCapabilities {             // CLAUDE_CODE.kinds[1]\n    kind: ArtifactKind::Skill,\n    disposition: Disposition::Native,\n    layout: Layout {\n      path_template: "skills/{name}/SKILL.md",\n      merge: false,\n    },\n    format: SerFormat::YamlFrontmatterMarkdown,\n    frontmatter_dialect: Some(FrontmatterDialect::YamlDashes),\n    field_map: FieldMap(&[\n      FieldRule { canonical: TopLevel("name"),                  emitted: Some("name"),          transform: false },\n      FieldRule { canonical: TopLevel("description"),           emitted: Some("description"),   transform: false },\n      FieldRule { canonical: TargetOverride("allowed_tools"),   emitted: Some("allowed-tools"), transform: false },\n      FieldRule { canonical: TargetOverride("model"),           emitted: Some("model"),         transform: false },\n    ]),\n    budget: Some(Budget { limit: 8000, unit: Tokens(Cl100kBase), severity: Soft }),\n  },\n  host_id: "claude-code",\n}`,
+      },
+      {
+        stage: 'render', num: '④', name: 'Render', color: '#3fb950',
+        summary: 'Jinja expanded, host.* substituted → String',
+        body: `// environment(loader_root=project_root, project_root)\n// Context: host = CLAUDE_CODE, params = { … }\n// host.permission_model == "explicit" → branch 1 taken\n// host.ask_user_syntax = "Pause and ask the user explicitly in chat before proceeding."\n// {% include "fragments/footer.md.j2" %} → resolved from named-template table\n\nRendered body:\n──────────────────────────────────────────────────────\n# Safe Deleter\n\nYou delete files when asked. Always confirm first.\n\n## Permission step\nPause and ask the user explicitly in chat before proceeding. List exactly which files you will delete and wait for an explicit "yes".\n\nAlways verify the file list before deletion.\n──────────────────────────────────────────────────────`,
+      },
+      {
+        stage: 'map', num: '⑤', name: 'Map', color: '#3fb950',
+        summary: 'MappedFields: [(name,…),(description,…),(allowed-tools,…),(model,…)]',
+        body: `// map_fields(&resolved, &artifact, &NoTransforms)\n//\n// Rule 1: TopLevel("name")       → artifact.frontmatter.name\n// Rule 2: TopLevel("description")→ artifact.frontmatter.description\n// Rule 3: TargetOverride("allowed_tools") → targets.override_for("claude-code")["allowed_tools"]\n//          emitted as "allowed-tools"  ← RECASED (hyphen vs underscore)\n// Rule 4: TargetOverride("model")        → targets.override_for("claude-code")["model"]\n\nMappedFields: Vec<(String, Value)> = [\n  ("name",          String("safe-deleter")),\n  ("description",   String("Deletes files on request, but never destructively without confirmation.")),\n  ("allowed-tools", Sequence(["Read", "Bash"])),     ← sourced from targets.claude-code\n  ("model",         String("claude-sonnet-4-5")),    ← sourced from targets.claude-code\n]`,
+      },
+      {
+        stage: 'serialize', num: '⑥', name: 'Serialize', color: '#bc8cff',
+        summary: 'YAML frontmatter + rendered body → framed String',
+        body: `// SerFormat::YamlFrontmatterMarkdown, FrontmatterDialect::YamlDashes\n// Frame: "---\\n" + serde_yaml_ng(mapped_fields) + "---\\n" + rendered_body\n\nframed: String =\n───────────────────────────────────────────────────────────\n---\nname: safe-deleter\ndescription: Deletes files on request, but never destructively without confirmation.\nallowed-tools:\n  - Read\n  - Bash\nmodel: claude-sonnet-4-5\n---\n\n# Safe Deleter\n\nYou delete files when asked. Always confirm first.\n\n## Permission step\nPause and ask the user explicitly in chat before proceeding. List exactly which files you will delete and wait for an explicit "yes".\n\nAlways verify the file list before deletion.\n───────────────────────────────────────────────────────────`,
+      },
+      {
+        stage: 'emit', num: '⑦', name: 'Emit + Merge', color: '#d29922',
+        summary: '→ dist/claude-code/skills/safe-deleter/SKILL.md',
+        body: `// emit(&resolved, "safe-deleter", framed)\n// path_template = "skills/{name}/SKILL.md"\n// "{name}" → "safe-deleter"\n\nEmittedSpec {\n  relative_path: PathBuf("skills/safe-deleter/SKILL.md"),\n  contents: "---\\nname: safe-deleter\\n...",\n  merge: false,   // individual file, not merged\n}\n\n// weaft-cli merge_and_check():\n// merge:false → write directly\nFile written: dist/claude-code/skills/safe-deleter/SKILL.md  ✓\n\n// host.supports_assets = true → copy assets/ if present\n// Token budget check: count tokens in framed (cl100k_base)\n//   ≤ 8000 soft budget → OK\n//   > 8000 → lint warning (error under --strict)`,
+      },
+    ],
+  },
+  cursor: {
+    host: 'cursor',
+    steps: [
+      {
+        stage: 'source', num: '①', name: 'Source', color: '#3fb950',
+        summary: 'Same file: skills/safe-deleter.md',
+        body: `Same source file — weaft compiles the same project to multiple hosts.\n\nFile: skills/safe-deleter.md  (identical to the claude-code trace)`,
+      },
+      {
+        stage: 'parse', num: '②', name: 'Parse', color: '#3fb950',
+        summary: 'Identical Artifact — parsing is host-independent',
+        body: `Artifact {\n  kind: ArtifactKind::Skill,\n  frontmatter: ArtifactMeta {\n    name: "safe-deleter",\n    description: "Deletes files on request, but never destructively without confirmation.",\n    targets: Targets {\n      overrides: {\n        "claude-code": { "allowed_tools": [...], "model": "..." },\n        "cursor":       { "globs": ["**/*"], "always_apply": false },\n      }\n    },\n    fields: {},\n  },\n  body: "# Safe Deleter\\n…{% if host.permission_model == \\"explicit\\" %}…",\n  source_path: PathBuf("skills/safe-deleter.md"),\n}`,
+      },
+      {
+        stage: 'resolve', num: '③', name: 'Resolve', color: '#3fb950',
+        summary: 'Disposition::Native, cell=Skill cell for cursor (Mdc format)',
+        body: `// resolve(&artifact, &CURSOR)\n\nResolved {\n  artifact_kind: ArtifactKind::Skill,\n  effective_kind: ArtifactKind::Skill,\n  disposition: Disposition::Native,\n  cell: &KindCapabilities {            // CURSOR.kinds[1]\n    layout: Layout {\n      path_template: "rules/{name}.mdc",  ← different from claude!\n      merge: false,\n    },\n    format: SerFormat::Mdc,\n    frontmatter_dialect: Some(FrontmatterDialect::YamlDashes),\n    field_map: FieldMap(&[\n      // NOTE: no "name" rule! Cursor .mdc omits name from frontmatter.\n      FieldRule { canonical: TopLevel("description"),         emitted: Some("description"),  transform: false },\n      FieldRule { canonical: TargetOverride("globs"),         emitted: Some("globs"),        transform: false },\n      FieldRule { canonical: TargetOverride("always_apply"),  emitted: Some("alwaysApply"),  transform: false },  // camelCase!\n    ]),\n    budget: Some(Budget { limit: 6000, unit: Tokens(Cl100kBase), severity: Soft }),\n  },\n  host_id: "cursor",\n}`,
+      },
+      {
+        stage: 'render', num: '④', name: 'Render', color: '#3fb950',
+        summary: 'host.permission_model == "implicit" → different branch',
+        body: `// Context: host = CURSOR\n// host.permission_model = "implicit"\n// → branch 2 taken in the template\n// host.ask_user_syntax = "Output a clear question in the chat panel and wait for the user's reply."\n\nRendered body:\n──────────────────────────────────────────────────────\n# Safe Deleter\n\nYou delete files when asked. Always confirm first.\n\n## Permission step\nOutput a clear question in the chat panel and wait for the user's reply. The host's own approval UI will gate the deletion — surface the full file list so the user can approve.\n\nAlways verify the file list before deletion.\n──────────────────────────────────────────────────────\n\n// Different body than claude-code! Same source, different output.`,
+      },
+      {
+        stage: 'map', num: '⑤', name: 'Map', color: '#3fb950',
+        summary: 'No "name" field; alwaysApply (camelCase) from cursor override',
+        body: `// map_fields(&resolved, &artifact, &NoTransforms)\n// Cell has NO "name" rule → name is absent from cursor .mdc frontmatter\n// TargetOverride("always_apply") reads from targets.cursor["always_apply"]\n//   emitted as "alwaysApply"  ← camelCase!  (not "always_apply")\n// TargetOverride("globs") reads from targets.cursor["globs"]\n\nMappedFields = [\n  ("description",  String("Deletes files on request, but never destructively without confirmation.")),\n  ("globs",        Sequence(["**/*"])),           ← from targets.cursor\n  ("alwaysApply",  Bool(false)),                  ← RECASED from always_apply\n  // NO "name" entry — Cursor .mdc omits it\n]`,
+      },
+      {
+        stage: 'serialize', num: '⑥', name: 'Serialize', color: '#bc8cff',
+        summary: 'Mdc format (same as YAML-dashes) → framed String',
+        body: `// SerFormat::Mdc — same framing as YamlFrontmatterMarkdown\n// "---\\n" + yaml(mapped_fields) + "---\\n" + rendered_body\n\nframed: String =\n───────────────────────────────────────────────────────────\n---\ndescription: Deletes files on request, but never destructively without confirmation.\nglobs:\n  - '**/*'\nalwaysApply: false\n---\n\n# Safe Deleter\n\nYou delete files when asked. Always confirm first.\n\n## Permission step\nOutput a clear question in the chat panel and wait for the user's reply. The host's own approval UI will gate the deletion — surface the full file list so the user can approve.\n\nAlways verify the file list before deletion.\n───────────────────────────────────────────────────────────\n// No "name:" in frontmatter — cursor omits it\n// Different body text than claude-code`,
+      },
+      {
+        stage: 'emit', num: '⑦', name: 'Emit + Merge', color: '#d29922',
+        summary: '→ dist/cursor/rules/safe-deleter.mdc',
+        body: `// path_template = "rules/{name}.mdc"\n// "{name}" → "safe-deleter"\n\nEmittedSpec {\n  relative_path: PathBuf("rules/safe-deleter.mdc"),  ← .mdc extension!\n  contents: "---\\ndescription: …\\n---\\n# Safe Deleter…",\n  merge: false,\n}\n\nFile written: dist/cursor/rules/safe-deleter.mdc  ✓\n\n// host.supports_assets = false → no asset copy\n// Token budget: ≤ 6000 (cursor uses tighter budget than claude)`,
+      },
+    ],
+  },
+  'agents-md': {
+    host: 'agents-md',
+    steps: [
+      {
+        stage: 'source', num: '①', name: 'Source', color: '#3fb950',
+        summary: 'Same source file',
+        body: `Same source file: skills/safe-deleter.md`,
+      },
+      {
+        stage: 'parse', num: '②', name: 'Parse', color: '#3fb950',
+        summary: 'Identical Artifact',
+        body: `Identical Artifact to the other traces — parsing is host-independent.`,
+      },
+      {
+        stage: 'resolve', num: '③', name: 'Resolve', color: '#3fb950',
+        summary: 'Disposition::Native, merge:true, format:PlainMarkdown',
+        body: `// resolve(&artifact, &AGENTS_MD)\n\nResolved {\n  artifact_kind: ArtifactKind::Skill,\n  effective_kind: ArtifactKind::Skill,\n  disposition: Disposition::Native,\n  cell: &KindCapabilities {             // AGENTS_MD.kinds[1]\n    layout: Layout {\n      path_template: "AGENTS.md",        ← flat file\n      merge: true,                       ← MERGED with other skills!\n    },\n    format: SerFormat::PlainMarkdown,   ← no frontmatter\n    frontmatter_dialect: None,\n    field_map: FieldMap(&[]),            ← EMPTY field map\n    budget: None,\n  },\n  host_id: "agents-md",\n}`,
+      },
+      {
+        stage: 'render', num: '④', name: 'Render', color: '#3fb950',
+        summary: 'host.permission_model == "explicit" → same branch as claude-code',
+        body: `// Context: host = AGENTS_MD\n// host.permission_model = "explicit" → branch 1 taken\n// host.ask_user_syntax = "Ask the user explicitly before any destructive action."\n\nRendered body:\n──────────────────────────────────────────────────────\n# Safe Deleter\n\nYou delete files when asked. Always confirm first.\n\n## Permission step\nAsk the user explicitly before any destructive action. List exactly which files you will delete and wait for an explicit "yes".\n\nAlways verify the file list before deletion.\n──────────────────────────────────────────────────────`,
+      },
+      {
+        stage: 'map', num: '⑤', name: 'Map', color: '#3fb950',
+        summary: 'Empty field_map → expand_singleton fast-path → [] (no frontmatter)',
+        body: `// field_map.0.is_empty() == true → expand_singleton() fast-path\n// No __singleton key on a skill → returns MappedFields::new()\n\nMappedFields = []   // ← empty! No frontmatter will be emitted.\n\n// agents-md is PlainMarkdown — the serialize stage just outputs\n// the rendered body with no frontmatter block.`,
+      },
+      {
+        stage: 'serialize', num: '⑥', name: 'Serialize', color: '#bc8cff',
+        summary: 'PlainMarkdown → body only, no frontmatter',
+        body: `// SerFormat::PlainMarkdown, FrontmatterDialect::None\n// MappedFields is empty → no --- block\n// framed = rendered_body directly\n\nframed: String =\n───────────────────────────────────────────────────────────\n# Safe Deleter\n\nYou delete files when asked. Always confirm first.\n\n## Permission step\nAsk the user explicitly before any destructive action. List exactly which files you will delete and wait for an explicit "yes".\n\nAlways verify the file list before deletion.\n───────────────────────────────────────────────────────────\n// No YAML frontmatter block — agents-md uses plain markdown only`,
+      },
+      {
+        stage: 'emit', num: '⑦', name: 'Emit + Merge', color: '#d29922',
+        summary: 'merge:true → appended into shared AGENTS.md',
+        body: `// path_template = "AGENTS.md"\n// merge = true → this spec is CONCATENATED with other skills\n\nEmittedSpec {\n  relative_path: PathBuf("AGENTS.md"),   ← shared with all skills!\n  contents: "# Safe Deleter\\n…",\n  merge: true,\n}\n\n// merge_and_check(): group all specs by relative_path\n// All skills with merge:true and path "AGENTS.md" are concatenated:\n//   skill-1 body + "\\n\\n" + safe-deleter body + "\\n\\n" + …\n\nFinal file: dist/agents-md/AGENTS.md  ✓  (all skills merged)\n// No per-skill file — everything is one flat AGENTS.md`,
+      },
+    ],
+  },
+};
+
+// ── Interactive logic ─────────────────────────────────────────────────────────
+
+let activeStage = null;
+let traceTimer = null;
+let traceRunning = false;
+let currentHost = 'claude';
+
+function selectStage(id) {
+  // Update nodes
+  document.querySelectorAll('.pl-node').forEach(n => n.classList.remove('active'));
+  const node = document.getElementById('pln-' + id);
+  if (node) node.classList.add('active');
+
+  // Update connectors
+  const stageOrder = ['source','parse','resolve','render','map','serialize','emit'];
+  const idx = stageOrder.indexOf(id);
+  document.querySelectorAll('.pl-connector').forEach((c,i) => {
+    c.classList.toggle('active', i <= idx - 1);
+  });
+
+  activeStage = id;
+  const d = STAGE_DATA[id];
+  if (!d) return;
+
+  // Header
+  document.getElementById('pl-badge').textContent = d.num;
+  document.getElementById('pl-badge').style.background = d.color + '22';
+  document.getElementById('pl-badge').style.color = d.color;
+  document.getElementById('pl-detail-title').textContent = `Stage ${d.num}: ${d.name}`;
+  document.getElementById('pl-detail-file').textContent = d.file;
+
+  // IO box
+  const ioBox = document.getElementById('pl-io-box');
+  ioBox.style.borderColor = d.color;
+  ioBox.textContent = d.io;
+
+  // Algo box
+  const algoBox = document.getElementById('pl-algo-box');
+  algoBox.innerHTML = d.algo.map(([title, desc]) =>
+    `<div class="pl-step">
+      <div class="pl-step-num" style="background:${d.color}22; color:${d.color};">${title}</div>
+      <div>${desc}</div>
+    </div>`
+  ).join('');
+
+  // Invariants
+  const invBox = document.getElementById('pl-inv-box');
+  if (d.invariants && d.invariants.length) {
+    invBox.innerHTML = '<h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;">Key Invariants</h4>' +
+      d.invariants.map(({label, text}) =>
+        `<div style="display:flex;gap:8px;margin-bottom:6px;font-size:12px;">
+          <span style="font-family:var(--font);background:rgba(88,166,255,.12);color:var(--accent);padding:1px 6px;border-radius:4px;white-space:nowrap;flex-shrink:0;height:fit-content;">${label}</span>
+          <span style="color:var(--muted);">${text}</span>
+        </div>`
+      ).join('');
+  } else {
+    invBox.innerHTML = '';
+  }
+
+  // Switch to detail tab
+  switchPipelineTab('detail');
+}
+
+function switchPipelineTab(tab) {
+  document.querySelectorAll('.pl-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.pl-tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('pl-tp-' + tab).classList.add('active');
+  document.querySelectorAll('.pl-tab').forEach(t => {
+    if (t.getAttribute('onclick').includes(`'${tab}'`)) t.classList.add('active');
+  });
+}
+
+// ── Trace logic ───────────────────────────────────────────────────────────────
+
+function rebuildTrace() {
+  const sel = document.getElementById('pl-host-sel').value;
+  currentHost = sel;
+  document.getElementById('pl-host-label').textContent = TRACE_DATA[sel].host;
+  buildTraceSteps(sel);
+  stopTrace();
+}
+
+function buildTraceSteps(host) {
+  const steps = TRACE_DATA[host].steps;
+  const container = document.getElementById('pl-trace-steps');
+  container.innerHTML = steps.map((s, i) => `
+    <div class="pl-trace-step" id="pl-ts-${i}" onclick="toggleTraceStep(${i})">
+      <div class="pl-trace-step-header">
+        <span class="pl-trace-step-num" style="background:${s.color}22;color:${s.color};">${s.num}</span>
+        <span class="pl-trace-step-name" style="color:${s.color};">${s.name}</span>
+        <span class="pl-trace-step-summary">${s.summary}</span>
+        <span style="color:var(--muted);font-size:11px;margin-left:8px;">▼</span>
+      </div>
+      <div class="pl-trace-step-body">${s.body}</div>
+    </div>
+  `).join('');
+}
+
+function toggleTraceStep(i) {
+  const el = document.getElementById('pl-ts-' + i);
+  el.classList.toggle('open');
+}
+
+function runTrace() {
+  if (traceRunning) { stopTrace(); return; }
+
+  switchPipelineTab('trace');
+  traceRunning = true;
+  const btn = document.getElementById('pl-run-btn');
+  btn.textContent = '■ Stop';
+  btn.classList.add('running');
+
+  const steps = TRACE_DATA[currentHost].steps;
+  let i = 0;
+
+  // Reset all
+  steps.forEach((_, idx) => {
+    const el = document.getElementById('pl-ts-' + idx);
+    if (el) { el.classList.remove('lit', 'open'); }
+  });
+
+  // Highlight corresponding pipeline node
+  function lightStep(idx) {
+    if (idx >= steps.length) { stopTrace(); return; }
+    const step = steps[idx];
+    const el = document.getElementById('pl-ts-' + idx);
+    if (el) {
+      el.classList.add('lit');
+      el.classList.add('open');
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    // Also highlight the node in the flow diagram
+    document.querySelectorAll('.pl-node').forEach(n => n.classList.remove('active'));
+    const node = document.getElementById('pln-' + step.stage);
+    if (node) node.classList.add('active');
+
+    traceTimer = setTimeout(() => lightStep(idx + 1), 1200);
+  }
+
+  lightStep(0);
+}
+
+function stopTrace() {
+  traceRunning = false;
+  clearTimeout(traceTimer);
+  const btn = document.getElementById('pl-run-btn');
+  if (btn) { btn.textContent = '▶ Run Trace'; btn.classList.remove('running'); }
+}
+
+// Initialize
+buildTraceSteps('claude');
+// Select the first stage on load
+setTimeout(() => selectStage('source'), 100);
+</script>
+
+<!-- SECTION 3: Hosts -->
+<section>
+  <h2>🎯 Supported Hosts</h2>
+  <p style="color:var(--muted); font-size:13px; margin-bottom:16px;">Click a host card to see its full capability details.</p>
+  <div class="host-cards" id="host-cards">
+
+    <div class="host-card" data-host="claude-code" onclick="selectHost('claude-code')">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <h3>Claude Code</h3>
+        <span class="badge badge-green" style="font-size:10px;">default</span>
+      </div>
+      <div class="host-id">id: claude-code</div>
+      <div class="cap-row"><span>Subagents</span><span class="tick">✓ Task</span></div>
+      <div class="cap-row"><span>Tool allowlist</span><span class="tick">✓</span></div>
+      <div class="cap-row"><span>Assets</span><span class="tick">✓</span></div>
+      <div class="cap-row"><span>Ask user</span><span style="font-size:11px;color:var(--green);">Structured</span></div>
+      <div class="cap-row"><span>Token budget</span><span style="font-size:11px;color:var(--accent);">8000 cl100k</span></div>
+      <div class="cap-row"><span>Permission</span><span style="font-size:11px;color:var(--yellow);">Explicit</span></div>
+    </div>
+
+    <div class="host-card" data-host="cursor" onclick="selectHost('cursor')">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <h3>Cursor</h3>
+        <span class="badge badge-green" style="font-size:10px;">default</span>
+      </div>
+      <div class="host-id">id: cursor</div>
+      <div class="cap-row"><span>Subagents</span><span class="tick">✓ Agent</span></div>
+      <div class="cap-row"><span>Tool allowlist</span><span class="cross">✗</span></div>
+      <div class="cap-row"><span>Assets</span><span class="cross">✗</span></div>
+      <div class="cap-row"><span>Ask user</span><span style="font-size:11px;color:var(--yellow);">Non-blocking</span></div>
+      <div class="cap-row"><span>Token budget</span><span style="font-size:11px;color:var(--accent);">6000 cl100k</span></div>
+      <div class="cap-row"><span>Permission</span><span style="font-size:11px;color:var(--accent);">Implicit</span></div>
+    </div>
+
+    <div class="host-card" data-host="agents-md" onclick="selectHost('agents-md')">
+      <h3>AGENTS.md (generic)</h3>
+      <div class="host-id">id: agents-md</div>
+      <div class="cap-row"><span>Subagents</span><span class="cross">✗</span></div>
+      <div class="cap-row"><span>Tool allowlist</span><span class="cross">✗</span></div>
+      <div class="cap-row"><span>Assets</span><span class="cross">✗</span></div>
+      <div class="cap-row"><span>Ask user</span><span class="cross">None</span></div>
+      <div class="cap-row"><span>Token budget</span><span class="dash">—</span></div>
+      <div class="cap-row"><span>Permission</span><span style="font-size:11px;color:var(--yellow);">Explicit</span></div>
+    </div>
+
+    <div class="host-card" data-host="opencode" onclick="selectHost('opencode')">
+      <h3>opencode</h3>
+      <div class="host-id">id: opencode</div>
+      <div class="cap-row"><span>Subagents</span><span class="tick">✓ Task</span></div>
+      <div class="cap-row"><span>Tool allowlist</span><span class="cross">✗</span></div>
+      <div class="cap-row"><span>Assets</span><span class="cross">✗</span></div>
+      <div class="cap-row"><span>Ask user</span><span style="font-size:11px;color:var(--green);">Structured</span></div>
+      <div class="cap-row"><span>Token budget</span><span class="dash">—</span></div>
+      <div class="cap-row"><span>Permission</span><span style="font-size:11px;color:var(--accent);">Implicit</span></div>
+    </div>
+
+    <div class="host-card" data-host="codex" onclick="selectHost('codex')">
+      <h3>OpenAI Codex</h3>
+      <div class="host-id">id: codex</div>
+      <div class="cap-row"><span>Subagents</span><span class="tick">✓ (by name)</span></div>
+      <div class="cap-row"><span>Tool allowlist</span><span class="cross">✗</span></div>
+      <div class="cap-row"><span>Assets</span><span class="tick">✓</span></div>
+      <div class="cap-row"><span>Ask user</span><span class="cross">None</span></div>
+      <div class="cap-row"><span>Token budget</span><span class="dash">—</span></div>
+      <div class="cap-row"><span>Permission</span><span style="font-size:11px;color:var(--purple);">Sandboxed</span></div>
+    </div>
+
+    <div class="host-card" data-host="gemini-cli" onclick="selectHost('gemini-cli')">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <h3>Gemini CLI</h3>
+        <span class="badge badge-red" style="font-size:10px;">unresearched</span>
+      </div>
+      <div class="host-id">id: gemini-cli</div>
+      <div class="cap-row"><span>Subagents</span><span class="cross">✗</span></div>
+      <div class="cap-row"><span>Tool allowlist</span><span class="cross">✗</span></div>
+      <div class="cap-row"><span>Assets</span><span class="cross">✗</span></div>
+      <div class="cap-row"><span>Ask user</span><span class="cross">None</span></div>
+      <div class="cap-row"><span>Token budget</span><span class="dash">—</span></div>
+      <div class="cap-row"><span>Permission</span><span style="font-size:11px;color:var(--yellow);">Explicit</span></div>
+    </div>
+
+  </div>
+
+  <!-- Host detail panel -->
+  <div id="host-detail">
+    <h3 id="detail-title"></h3>
+    <div class="detail-grid" id="detail-grid"></div>
+    <div style="margin-top:16px;">
+      <h4 style="font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px;">Kind Capability Table</h4>
+      <div class="kinds-grid" id="detail-kinds"></div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 4: Capability Matrix (full) -->
+<section>
+  <h2>📊 Full Capability Matrix</h2>
+  <div class="tab-bar">
+    <div class="tab active" onclick="switchTab('matrix','host-features')">Host Features</div>
+    <div class="tab" onclick="switchTab('matrix','kind-support')">Kind Support per Host</div>
+    <div class="tab" onclick="switchTab('matrix','skill-layout')">Skill / Agent Layout</div>
+    <div class="tab" onclick="switchTab('matrix','frontmatter')">Frontmatter Dialects</div>
+  </div>
+
+  <!-- Tab: host-features -->
+  <div class="tab-panel active" id="matrix-host-features">
+    <div class="table-scroll">
+    <table class="matrix-table">
+      <thead>
+        <tr>
+          <th class="row-header">Capability</th>
+          <th>claude-code</th><th>cursor</th><th>agents-md</th><th>opencode</th><th>codex</th><th>gemini-cli</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="row-label">Subagents</td><td>✅ Task</td><td>✅ Agent</td><td>—</td><td>✅ Task</td><td>✅ (name)</td><td>—</td></tr>
+        <tr><td class="row-label">Tool allowlist (skills)</td><td>✅</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+        <tr><td class="row-label">Subagent tools list</td><td>✅</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+        <tr><td class="row-label">Subagent readonly flag</td><td>—</td><td>✅</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+        <tr><td class="row-label">Per-skill model</td><td>✅</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+        <tr><td class="row-label">Bundled assets</td><td>✅</td><td>—</td><td>—</td><td>—</td><td>✅</td><td>—</td></tr>
+        <tr><td class="row-label">Slash commands</td><td>✅</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+        <tr><td class="row-label">MCP support</td><td>✅</td><td>✅</td><td>—</td><td>✅</td><td>✅</td><td>—</td></tr>
+        <tr><td class="row-label">Ask user (type)</td><td>Structured</td><td>Non-blocking</td><td>None</td><td>Structured</td><td>None</td><td>None</td></tr>
+        <tr><td class="row-label">Ask user primitive</td><td><code>AskUserQuestion</code></td><td>—</td><td>—</td><td><code>question</code></td><td>—</td><td>—</td></tr>
+        <tr><td class="row-label">Ask in subagents</td><td>—</td><td>✅</td><td>—</td><td>✅</td><td>—</td><td>—</td></tr>
+        <tr><td class="row-label">Permission model</td><td>Explicit</td><td>Implicit</td><td>Explicit</td><td>Implicit</td><td>Sandboxed</td><td>Explicit</td></tr>
+        <tr><td class="row-label">Token budget (heuristic)</td><td>8000</td><td>6000</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+        <tr><td class="row-label">Tokenizer</td><td>cl100k</td><td>cl100k</td><td>cl100k</td><td>cl100k</td><td>o200k</td><td>GeminiApprox</td></tr>
+        <tr><td class="row-label">Init default</td><td>✅</td><td>✅</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <!-- Tab: kind-support -->
+  <div class="tab-panel" id="matrix-kind-support">
+    <div class="table-scroll">
+    <table class="matrix-table">
+      <thead>
+        <tr>
+          <th class="row-header">Kind</th>
+          <th>claude-code</th><th>cursor</th><th>agents-md</th><th>opencode</th><th>codex</th><th>gemini-cli</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="row-label">Instruction</td>
+          <td class="cell-merge">Merge→CLAUDE.md</td><td class="cell-drop">Drop</td><td class="cell-merge">Merge→AGENTS.md</td><td class="cell-drop">Drop</td><td class="cell-merge">Merge→AGENTS.md<br><span style="font-size:10px;color:var(--red);">32KiB hard limit</span></td><td class="cell-drop">Drop</td>
+        </tr>
+        <tr>
+          <td class="row-label">Skill</td>
+          <td class="cell-native">skills/{name}/SKILL.md</td><td class="cell-native">rules/{name}.mdc</td><td class="cell-merge">Merge→AGENTS.md</td><td class="cell-native">.opencode/skills/{name}/SKILL.md</td><td class="cell-native">.agents/skills/{name}/SKILL.md</td><td class="cell-drop">Drop</td>
+        </tr>
+        <tr>
+          <td class="row-label">Subagent</td>
+          <td class="cell-native">agents/{name}.md</td><td class="cell-native">agents/{name}.md</td><td class="cell-drop">Drop ⚠️</td><td class="cell-native">.opencode/agent/{name}.md</td><td class="cell-native">.codex/agents/{name}.toml</td><td class="cell-drop">Drop</td>
+        </tr>
+        <tr>
+          <td class="row-label">Command</td>
+          <td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td>
+        </tr>
+        <tr>
+          <td class="row-label">McpServer</td>
+          <td class="cell-native">.mcp.json (root)</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td>
+        </tr>
+        <tr>
+          <td class="row-label">Settings</td>
+          <td class="cell-native">.claude/settings.json</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td>
+        </tr>
+        <tr>
+          <td class="row-label">Plugin</td>
+          <td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td>
+        </tr>
+        <tr>
+          <td class="row-label">Hook</td>
+          <td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td>
+        </tr>
+        <tr>
+          <td class="row-label">Ignore</td>
+          <td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td><td class="cell-drop">Drop</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p style="margin-top:10px; font-size:12px; color:var(--muted);">
+      <span style="color:var(--green);">■</span> Native = distinct file emitted ·
+      <span style="color:var(--accent);">■</span> Merge = merged into shared file ·
+      <span style="color:var(--red);">■</span> Drop = skipped with a warning
+    </p>
+  </div>
+
+  <!-- Tab: skill-layout -->
+  <div class="tab-panel" id="matrix-skill-layout">
+    <div class="table-scroll">
+    <table class="matrix-table">
+      <thead>
+        <tr>
+          <th class="row-header">Host</th>
+          <th>Skill Layout</th><th>Skill Path Template</th><th>Skill Format</th><th>Agent Layout</th><th>Agent Path</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="row-label">claude-code</td><td>ClaudeStyle</td><td><code>skills/{name}/SKILL.md</code></td><td>YamlFrontmatter+Markdown</td><td>ClaudeAgents</td><td><code>agents/{name}.md</code></td></tr>
+        <tr><td class="row-label">cursor</td><td>CursorMdc</td><td><code>rules/{name}.mdc</code></td><td>Mdc</td><td>CursorAgents</td><td><code>agents/{name}.md</code></td></tr>
+        <tr><td class="row-label">agents-md</td><td>AgentsMd</td><td><code>AGENTS.md</code> (merged)</td><td>PlainMarkdown</td><td>None</td><td>—</td></tr>
+        <tr><td class="row-label">opencode</td><td>OpencodeSkill</td><td><code>.opencode/skills/{name}/SKILL.md</code></td><td>YamlFrontmatter+Markdown</td><td>OpencodeAgents</td><td><code>.opencode/agent/{name}.md</code></td></tr>
+        <tr><td class="row-label">codex</td><td>CodexSkill</td><td><code>.agents/skills/{name}/SKILL.md</code></td><td>YamlFrontmatter+Markdown</td><td>CodexAgents</td><td><code>.codex/agents/{name}.toml</code></td></tr>
+        <tr><td class="row-label">gemini-cli</td><td>AgentsMd</td><td>— (all Drop)</td><td>None</td><td>None</td><td>—</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <!-- Tab: frontmatter -->
+  <div class="tab-panel" id="matrix-frontmatter">
+    <div class="grid2">
+      <div class="card">
+        <h3>Frontmatter Dialects</h3>
+        <div style="font-size:12px; margin-top:8px;">
+          <div style="padding:8px; background:var(--bg3); border-radius:6px; margin-bottom:8px;">
+            <div style="color:var(--green); font-weight:700; margin-bottom:4px;">YamlDashes — <code>---\n…\n---</code></div>
+            <div style="color:var(--muted);">Used by: claude-code, cursor, opencode, codex (skills). Standard YAML frontmatter block.</div>
+          </div>
+          <div style="padding:8px; background:var(--bg3); border-radius:6px; margin-bottom:8px;">
+            <div style="color:var(--purple); font-weight:700; margin-bottom:4px;">Toml — TOML document</div>
+            <div style="color:var(--muted);">Used by: codex subagents (<code>.codex/agents/{name}.toml</code>). Rendered body goes into <code>developer_instructions</code> field.</div>
+          </div>
+          <div style="padding:8px; background:var(--bg3); border-radius:6px;">
+            <div style="color:var(--muted); font-weight:700; margin-bottom:4px;">None — No frontmatter</div>
+            <div style="color:var(--muted);">Used by: agents-md, gemini-cli. Pure Markdown, no metadata block.</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Key Field Rules (FieldSource)</h3>
+        <div style="font-size:12px; margin-top:8px;">
+          <div style="padding:8px; background:var(--bg3); border-radius:6px; margin-bottom:8px;">
+            <div style="color:var(--accent); font-weight:700; margin-bottom:4px;">TargetOverride("key")</div>
+            <div style="color:var(--muted);">Reads from <code>targets.&lt;host&gt;.&lt;key&gt;</code> in artifact frontmatter. Used for skill-level host-specific config: <code>allowed_tools</code>, <code>model</code>, <code>globs</code>, <code>always_apply</code>.</div>
+          </div>
+          <div style="padding:8px; background:var(--bg3); border-radius:6px; margin-bottom:8px;">
+            <div style="color:var(--green); font-weight:700; margin-bottom:4px;">TopLevel("key")</div>
+            <div style="color:var(--muted);">Reads from a top-level frontmatter field. Used for structural fields (<code>name</code>, <code>description</code>) and subagent fields (<code>tools</code>, <code>readonly</code>, <code>is_background</code>).</div>
+          </div>
+          <div style="padding:8px; background:var(--bg3); border-radius:6px;">
+            <div style="color:var(--yellow); font-weight:700; margin-bottom:4px;">Notable key casing rules</div>
+            <div style="color:var(--muted);"><code>allowed_tools</code> → emitted as <code>allowed-tools</code> (hyphen, Claude)<br><code>always_apply</code> → emitted as <code>alwaysApply</code> (camelCase, Cursor)<br>Cursor Skill omits <code>name</code> key entirely</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 5: Artifact Kinds -->
+<section>
+  <h2>📦 Artifact Kind Taxonomy</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>9 Closed Kinds — <code>ArtifactKind</code></h3>
+      <p style="font-size:12px; color:var(--muted); margin-bottom:12px;">Extending this set is a governance act (ADR required). Every pipeline stage matches it exhaustively.</p>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:12px;">
+        <div>
+          <div style="color:var(--green); font-weight:700; margin-bottom:6px;">Prose kinds (folder-backed)</div>
+          <div style="padding:4px 8px; background:var(--bg3); border-radius:4px; margin-bottom:4px;"><code>Instruction</code> — <code>instructions/</code></div>
+          <div style="padding:4px 8px; background:var(--bg3); border-radius:4px; margin-bottom:4px;"><code>Skill</code> — <code>skills/</code></div>
+          <div style="padding:4px 8px; background:var(--bg3); border-radius:4px; margin-bottom:4px;"><code>Subagent</code> — <code>agents/</code></div>
+          <div style="padding:4px 8px; background:var(--bg3); border-radius:4px; margin-bottom:4px;"><code>Command</code> — <code>commands/</code></div>
+          <div style="padding:4px 8px; background:var(--bg3); border-radius:4px;"><code>Hook</code> — <code>hooks/</code></div>
+        </div>
+        <div>
+          <div style="color:var(--accent); font-weight:700; margin-bottom:6px;">Manifest singletons (weaft.yaml)</div>
+          <div style="padding:4px 8px; background:var(--bg3); border-radius:4px; margin-bottom:4px;"><code>McpServer</code> — <code>mcp_servers:</code></div>
+          <div style="padding:4px 8px; background:var(--bg3); border-radius:4px; margin-bottom:4px;"><code>Settings</code> — <code>settings:</code></div>
+          <div style="padding:4px 8px; background:var(--bg3); border-radius:4px; margin-bottom:4px;"><code>Plugin</code> — <code>plugin:</code></div>
+          <div style="padding:4px 8px; background:var(--bg3); border-radius:4px;"><code>Ignore</code> — <code>ignore:</code></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Disposition Types</h3>
+      <div style="font-size:12px;">
+        <div style="padding:10px; background:var(--bg3); border-left:3px solid var(--green); border-radius:6px; margin-bottom:8px;">
+          <div style="color:var(--green); font-weight:700; margin-bottom:4px;">Native</div>
+          <div style="color:var(--muted);">A real file is emitted at the path computed from the layout template. The artifact is fully supported by this host.</div>
+        </div>
+        <div style="padding:10px; background:var(--bg3); border-left:3px solid var(--accent); border-radius:6px; margin-bottom:8px;">
+          <div style="color:var(--accent); font-weight:700; margin-bottom:4px;">Fold { into: Kind }</div>
+          <div style="color:var(--muted);">This kind's content is merged into another kind's file. Currently used for Instruction→merged file (AGENTS.md, CLAUDE.md). Fold chains are forbidden: target must be Native.</div>
+        </div>
+        <div style="padding:10px; background:var(--bg3); border-left:3px solid var(--red); border-radius:6px;">
+          <div style="color:var(--red); font-weight:700; margin-bottom:4px;">Drop</div>
+          <div style="color:var(--muted);">The host cannot represent this kind. A warning is emitted instead of a file. Example: Subagent on agents-md.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 6: Skill Source Layouts -->
+<section>
+  <h2>📁 Skill Source Layouts (ADR-0007)</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>Two Accepted Forms</h3>
+      <div class="skill-form active-form" style="margin-bottom:12px;">
+        <div style="color:var(--green); font-size:11px; font-weight:700; margin-bottom:6px;">FLAT (original)</div>
+        <div>skills/<span style="color:var(--accent);">safe-deleter</span>.md</div>
+        <div style="color:var(--muted); font-size:11px; margin-top:4px;">loader_root = project_root → fragments/ resolves from project root</div>
+      </div>
+      <div class="skill-form dir-form">
+        <div style="color:var(--accent); font-size:11px; font-weight:700; margin-bottom:6px;">DIRECTORY (ADR-0007)</div>
+        <div>skills/<span style="color:var(--accent);">safe-deleter</span>/<span style="color:var(--yellow);">SKILL.md</span></div>
+        <div style="color:var(--muted); margin-top:4px;">skills/safe-deleter/phases/research.md</div>
+        <div style="color:var(--muted);">skills/safe-deleter/phases/write.md</div>
+        <div style="color:var(--muted); font-size:11px; margin-top:4px;">loader_root = skills/safe-deleter/ → includes resolve locally</div>
+      </div>
+      <div style="font-size:12px; color:var(--muted); margin-top:12px;">
+        <div style="padding:8px; background:var(--bg3); border-radius:4px; border-left:3px solid var(--yellow);">
+          <strong style="color:var(--yellow);">Coexistence rule:</strong> if both forms exist for the same stem, directory wins. Flat is shadowed silently. <code>duplicate_skill</code> lint warning fires (error under <code>--strict</code>).
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Fragment Pre-registration</h3>
+      <p style="font-size:12px; color:var(--muted); margin-bottom:12px;">
+        All <code>fragments/</code> files at project root are pre-registered as named templates at environment setup via <code>add_template_owned()</code>. Named templates resolve before the loader, so <code>{% include "fragments/footer.md" %}</code> works identically from both flat and directory skills.
+      </p>
+      <div style="font-family:var(--font); font-size:12px; background:var(--bg3); border-radius:6px; padding:12px;">
+        <div style="color:var(--muted);"># project/</div>
+        <div style="color:var(--accent);">fragments/</div>
+        <div style="padding-left:16px; color:var(--text);">footer.md.j2</div>
+        <div style="padding-left:16px; color:var(--text);">shared-tip.md</div>
+        <div style="color:var(--accent);">skills/</div>
+        <div style="padding-left:16px; color:var(--text);">flat-skill.md  <span style="color:var(--muted);"># include "fragments/footer.md.j2" ✓</span></div>
+        <div style="padding-left:16px; color:var(--accent);">dir-skill/</div>
+        <div style="padding-left:32px; color:var(--yellow);">SKILL.md  <span style="color:var(--muted);"># include "fragments/footer.md.j2" ✓</span></div>
+        <div style="padding-left:32px; color:var(--text);">phases/research.md  <span style="color:var(--muted);"># include "phases/research.md" ✓ (local)</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 7: Lint Passes -->
+<section>
+  <h2>🔍 Lint Passes</h2>
+  <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">Run by <code>weaft lint</code> and automatically before <code>weaft build</code>. Pass <code>--strict</code> to escalate budget and layout warnings to errors.</p>
+  <div class="lint-list">
+    <div class="lint-item">
+      <div>
+        <div class="lint-code">required</div>
+        <div style="font-size:11px; color:var(--muted);">lint/required.rs</div>
+      </div>
+      <div>
+        <div class="lint-desc">Checks that every artifact has a <code>name</code> and <code>description</code> field. Hard error — never downgraded.</div>
+      </div>
+    </div>
+    <div class="lint-item">
+      <div>
+        <div class="lint-code">targets</div>
+        <div style="font-size:11px; color:var(--muted);">lint/targets.rs</div>
+      </div>
+      <div>
+        <div class="lint-desc">Checks for unknown target ids in <code>targets.supported</code> and artifacts that use unsupported host combinations (e.g. Subagent on agents-md).</div>
+      </div>
+    </div>
+    <div class="lint-item">
+      <div>
+        <div class="lint-code">layout</div>
+        <div style="font-size:11px; color:var(--muted);">lint/layout.rs</div>
+      </div>
+      <div>
+        <div>
+          <div class="lint-desc">Two passes: <strong>duplicate_skill</strong> (flat + directory coexistence) and <strong>missing_skill_md</strong> (skill directory with no SKILL.md).</div>
+          <div class="lint-escalates">⚠️ duplicate_skill: warn by default, hard error with <code>--strict</code><br>missing_skill_md: always warn, never escalated</div>
+        </div>
+      </div>
+    </div>
+    <div class="lint-item">
+      <div>
+        <div class="lint-code">ask_user</div>
+        <div style="font-size:11px; color:var(--muted);">lint/ask_user.rs</div>
+      </div>
+      <div>
+        <div class="lint-desc">Validates use of <code>AskUserQuestion</code> / ask primitives against host support. Warns when a skill uses structured ask on a host that only supports non-blocking or no ask.</div>
+      </div>
+    </div>
+    <div class="lint-item">
+      <div>
+        <div class="lint-code">unused</div>
+        <div style="font-size:11px; color:var(--muted);">lint/unused.rs</div>
+      </div>
+      <div>
+        <div>
+          <div class="lint-desc">Checks for <code>{{ params.* }}</code> declarations that never appear in any artifact body. Helps catch stale parameter declarations.</div>
+          <div class="lint-escalates">⚠️ Known v1 limitation: for directory skills, only <code>SKILL.md</code> body is searched (not phase files). False-positives possible for params used only in phases.</div>
+        </div>
+      </div>
+    </div>
+    <div class="lint-item">
+      <div>
+        <div class="lint-code">budget</div>
+        <div style="font-size:11px; color:var(--muted);">lint/budget.rs</div>
+      </div>
+      <div>
+        <div>
+          <div class="lint-desc">Token/byte budget check. Renders each skill to count tokens (cl100k_base approximation). Hard byte budget: Codex AGENTS.md 32 KiB. Soft token budgets: claude-code 8000, cursor 6000.</div>
+          <div class="lint-escalates">⚠️ Budget overflow: warn by default, hard error with <code>--strict</code></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 8: CLI Commands -->
+<section>
+  <h2>⌨️ CLI Commands</h2>
+  <div class="card">
+    <table class="cmd-table">
+      <thead>
+        <tr><th>Command</th><th>What it does</th><th>Key flags</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>weaft build</td>
+          <td>Compile all skills + subagents for every supported target into <code>dist/</code></td>
+          <td><code>--target &lt;id&gt;</code>, <code>--out &lt;dir&gt;</code>, <code>--param key=val</code>, <code>--manifest-path</code></td>
+        </tr>
+        <tr>
+          <td>weaft preview</td>
+          <td>Render one target to stdout without writing files</td>
+          <td><code>--target &lt;id&gt;</code> (required), <code>--param</code></td>
+        </tr>
+        <tr>
+          <td>weaft lint</td>
+          <td>Run all lint passes: required, targets, layout, ask_user, unused, budget</td>
+          <td><code>--strict</code> (budget + layout overflows become errors)</td>
+        </tr>
+        <tr>
+          <td>weaft tokens</td>
+          <td>Print per-target token usage for every skill</td>
+          <td><code>--param</code>, <code>--manifest-path</code></td>
+        </tr>
+        <tr>
+          <td>weaft targets</td>
+          <td>Print the live capability matrix</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>weaft init &lt;name&gt;</td>
+          <td>Scaffold a new weaft project (weaft.yaml + skills/ + agents/)</td>
+          <td><code>--target</code> (repeatable), <code>--minimal</code>, <code>--path</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- SECTION 9: Source project layout -->
+<section>
+  <h2>📂 Source Project Layout</h2>
+  <div class="grid2">
+    <div class="card">
+      <div class="file-tree">
+        <div><span class="dir">my-project/</span></div>
+        <div class="indent"><span class="file">weaft.yaml</span> <span class="comment">← project info, targets, parameters, singletons</span></div>
+        <div class="indent"><span class="dir">skills/</span></div>
+        <div class="indent2"><span class="file">flat-skill.md</span> <span class="comment">← YAML frontmatter + Jinja body</span></div>
+        <div class="indent2"><span class="dir">dir-skill/</span> <span class="comment">← ADR-0007 directory form</span></div>
+        <div style="padding-left:60px;"><span class="file" style="color:#d29922;">SKILL.md</span></div>
+        <div style="padding-left:60px;"><span class="dir">phases/</span></div>
+        <div style="padding-left:80px;"><span class="file">research.md</span></div>
+        <div class="indent"><span class="dir">agents/</span></div>
+        <div class="indent2"><span class="file">code-reviewer.md</span></div>
+        <div class="indent"><span class="dir">instructions/</span></div>
+        <div class="indent2"><span class="file">house-rules.md</span></div>
+        <div class="indent"><span class="dir">fragments/</span> <span class="comment">← shared Jinja partials (pre-registered)</span></div>
+        <div class="indent2"><span class="file">footer.md.j2</span></div>
+        <div class="indent"><span class="dir">assets/</span> <span class="comment">← copied to claude skill dirs only</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>weaft.yaml structure</h3>
+      <pre style="font-family:var(--font); font-size:11px; color:var(--text); background:var(--bg3); border-radius:6px; padding:12px; overflow-x:auto; line-height:1.7;">name: my-project
+version: 0.1.0
+targets:
+  supported:
+    - claude-code
+    - cursor
+parameters:
+  mode:
+    type: string
+    default: standard
+settings:          <span style="color:var(--muted);"># → .claude/settings.json</span>
+  theme: dark
+mcp_servers:       <span style="color:var(--muted);"># → .mcp.json</span>
+  fs:
+    command: fs-server
+ignore:
+  - "target/"</pre>
+      <div style="margin-top:12px;">
+        <h3>Skill frontmatter</h3>
+        <pre style="font-family:var(--font); font-size:11px; color:var(--text); background:var(--bg3); border-radius:6px; padding:12px; overflow-x:auto; line-height:1.7;">name: safe-deleter
+description: Deletes files safely.
+targets:
+  supported: []   <span style="color:var(--muted);"># empty = all project targets</span>
+  claude-code:
+    allowed_tools: [Read, Bash]
+    model: claude-sonnet-4-5
+  cursor:
+    globs: ["**/*"]
+    always_apply: false</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 10: Template context -->
+<section>
+  <h2>🧩 Template Context Variables</h2>
+  <div class="card">
+    <p style="font-size:13px; color:var(--muted); margin-bottom:14px;">Every Jinja template sees these variables. <code>UndefinedBehavior::Strict</code> — a typo is a hard build error.</p>
+    <div class="grid3">
+      <div>
+        <h3 style="margin-bottom:8px;">{{ host.* }}</h3>
+        <div style="font-size:12px; color:var(--muted); line-height:2;">
+          <div><code>host.id</code> — e.g. "claude-code"</div>
+          <div><code>host.display_name</code></div>
+          <div><code>host.permission_model</code></div>
+          <div><code>host.ask_user_syntax</code></div>
+          <div><code>host.ask_user_support</code></div>
+          <div><code>host.ask_user_primitive</code></div>
+          <div><code>host.supports_tool_allowlist</code></div>
+          <div><code>host.supports_subagents</code></div>
+          <div><code>host.supports_assets</code></div>
+          <div><code>host.supports_mcp</code></div>
+          <div><code>host.subagent_tool</code></div>
+          <div><code>host.max_skill_tokens</code></div>
+        </div>
+      </div>
+      <div>
+        <h3 style="margin-bottom:8px;">{{ params.* }}</h3>
+        <div style="font-size:12px; color:var(--muted); line-height:2;">
+          <div>User-declared parameters from <code>weaft.yaml</code></div>
+          <div>Overridable via <code>--param key=val</code></div>
+          <div>Types: <code>string</code>, <code>bool</code>, <code>int</code></div>
+          <div>Example: <code>{{ params.mode }}</code></div>
+        </div>
+        <h3 style="margin-bottom:8px; margin-top:14px;">Example template</h3>
+        <pre style="font-size:11px; font-family:var(--font); color:var(--text); background:var(--bg3); border-radius:6px; padding:10px; line-height:1.7;">{% if host.permission_model
+      == "explicit" -%}
+{{ host.ask_user_syntax }} List
+files and wait for "yes".
+{%- elif host.permission_model
+      == "implicit" -%}
+Surface file list for UI approval.
+{%- endif %}</pre>
+      </div>
+      <div>
+        <h3 style="margin-bottom:8px;">Include resolution</h3>
+        <div style="font-size:12px; color:var(--muted); line-height:1.8;">
+          <div style="padding:6px 8px; background:var(--bg3); border-radius:4px; margin-bottom:6px;">
+            <strong style="color:var(--green);">Flat skill</strong><br>
+            <code>{% include "fragments/x.md" %}</code><br>
+            → resolves from project_root
+          </div>
+          <div style="padding:6px 8px; background:var(--bg3); border-radius:4px; margin-bottom:6px;">
+            <strong style="color:var(--accent);">Dir skill SKILL.md</strong><br>
+            <code>{% include "phases/x.md" %}</code><br>
+            → resolves from skill_dir<br>
+            <code>{% include "fragments/x.md" %}</code><br>
+            → resolves from named-template table (pre-registered)
+          </div>
+          <div style="padding:6px 8px; background:var(--bg3); border-radius:4px; font-size:11px; border-left:3px solid var(--red);">
+            Missing include = hard build error (Strict mode). No silent fallback.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<!-- JS for interactivity -->
+<script>
+// Host detail data
+const HOSTS = {
+  'claude-code': {
+    name: 'Claude Code', badge: 'default',
+    fields: {
+      'Skill layout': 'ClaudeStyle → .claude/skills/{name}/SKILL.md',
+      'Agent layout': 'ClaudeAgents → .claude/agents/{name}.md',
+      'Frontmatter': 'YamlDashes (---)',
+      'Subagent tool': 'Task',
+      'Permission model': 'Explicit',
+      'Ask user': 'Structured (AskUserQuestion)',
+      'Ask in subagents': 'No (filtered)',
+      'Token budget': '8000 (cl100k soft heuristic)',
+      'Tool allowlist': '✅ allowed-tools: (hyphenated)',
+      'Per-skill model': '✅',
+      'Assets': '✅',
+      'Slash commands': '✅',
+      'MCP': '✅ → .mcp.json (root)',
+      'Settings': '✅ → .claude/settings.json',
+    },
+    kinds: [
+      {name:'Instruction', cls:'merge', disp:'MERGE'},
+      {name:'Skill', cls:'native', disp:'NATIVE'},
+      {name:'Subagent', cls:'native', disp:'NATIVE'},
+      {name:'Command', cls:'drop-c', disp:'DROP'},
+      {name:'McpServer', cls:'native', disp:'NATIVE'},
+      {name:'Settings', cls:'native', disp:'NATIVE'},
+      {name:'Plugin', cls:'drop-c', disp:'DROP'},
+      {name:'Hook', cls:'drop-c', disp:'DROP'},
+      {name:'Ignore', cls:'drop-c', disp:'DROP'},
+    ]
+  },
+  'cursor': {
+    name: 'Cursor', badge: 'default',
+    fields: {
+      'Skill layout': 'CursorMdc → .cursor/rules/{name}.mdc',
+      'Agent layout': 'CursorAgents → .cursor/agents/{name}.md',
+      'Frontmatter': 'YamlDashes (---)',
+      'Subagent tool': 'Agent',
+      'Subagent control': 'readonly: true/false',
+      'Permission model': 'Implicit',
+      'Ask user': 'NonBlocking (no named primitive)',
+      'Ask in subagents': 'Yes',
+      'Token budget': '6000 (cl100k soft heuristic)',
+      'Tool allowlist': '✗ (no tools in frontmatter)',
+      'Per-skill model': '✗',
+      'Assets': '✗',
+      'MCP': '✅',
+      'Key casing': 'alwaysApply (camelCase), no name field',
+    },
+    kinds: [
+      {name:'Instruction', cls:'drop-c', disp:'DROP'},
+      {name:'Skill', cls:'native', disp:'NATIVE'},
+      {name:'Subagent', cls:'native', disp:'NATIVE'},
+      {name:'Command', cls:'drop-c', disp:'DROP'},
+      {name:'McpServer', cls:'drop-c', disp:'DROP'},
+      {name:'Settings', cls:'drop-c', disp:'DROP'},
+      {name:'Plugin', cls:'drop-c', disp:'DROP'},
+      {name:'Hook', cls:'drop-c', disp:'DROP'},
+      {name:'Ignore', cls:'drop-c', disp:'DROP'},
+    ]
+  },
+  'agents-md': {
+    name: 'AGENTS.md (generic)', badge: null,
+    fields: {
+      'Skill layout': 'AgentsMd → merged AGENTS.md',
+      'Agent layout': 'None (no subagents)',
+      'Frontmatter': 'None (plain Markdown)',
+      'Subagents': '✗ — Drop with warning',
+      'Permission model': 'Explicit',
+      'Ask user': 'None (prose fallback)',
+      'Token budget': 'None (unbounded)',
+      'Tool allowlist': '✗',
+      'Assets': '✗',
+      'MCP': '✗',
+    },
+    kinds: [
+      {name:'Instruction', cls:'merge', disp:'MERGE'},
+      {name:'Skill', cls:'merge', disp:'MERGE'},
+      {name:'Subagent', cls:'drop-c', disp:'DROP ⚠'},
+      {name:'Command', cls:'drop-c', disp:'DROP'},
+      {name:'McpServer', cls:'drop-c', disp:'DROP'},
+      {name:'Settings', cls:'drop-c', disp:'DROP'},
+      {name:'Plugin', cls:'drop-c', disp:'DROP'},
+      {name:'Hook', cls:'drop-c', disp:'DROP'},
+      {name:'Ignore', cls:'drop-c', disp:'DROP'},
+    ]
+  },
+  'opencode': {
+    name: 'opencode', badge: null,
+    fields: {
+      'Skill layout': 'OpencodeSkill → .opencode/skills/{name}/SKILL.md',
+      'Agent layout': 'OpencodeAgents → .opencode/agent/{name}.md',
+      'Frontmatter': 'YamlDashes (---)',
+      'Subagent tool': 'Task',
+      'Permission model': 'Implicit',
+      'Ask user': 'Structured (question primitive)',
+      'Ask in subagents': 'Yes',
+      'Token budget': 'None',
+      'Tool allowlist': '✗ (per-tool permission map)',
+      'MCP': '✅',
+      'Field shape': 'Same as claude-code (CLAUDE_SKILL_FIELDS)',
+    },
+    kinds: [
+      {name:'Instruction', cls:'drop-c', disp:'DROP'},
+      {name:'Skill', cls:'native', disp:'NATIVE'},
+      {name:'Subagent', cls:'native', disp:'NATIVE'},
+      {name:'Command', cls:'drop-c', disp:'DROP'},
+      {name:'McpServer', cls:'drop-c', disp:'DROP'},
+      {name:'Settings', cls:'drop-c', disp:'DROP'},
+      {name:'Plugin', cls:'drop-c', disp:'DROP'},
+      {name:'Hook', cls:'drop-c', disp:'DROP'},
+      {name:'Ignore', cls:'drop-c', disp:'DROP'},
+    ]
+  },
+  'codex': {
+    name: 'OpenAI Codex', badge: null,
+    fields: {
+      'Skill layout': 'CodexSkill → .agents/skills/{name}/SKILL.md',
+      'Agent layout': 'CodexAgents → .codex/agents/{name}.toml',
+      'Frontmatter': 'TOML (agents) / YamlDashes (skills)',
+      'Subagent tool': 'none (by name)',
+      'Permission model': 'Sandboxed (Seatbelt/bubblewrap)',
+      'Ask user': 'None (prose guidance)',
+      'Token budget': 'None (o200k tokenizer)',
+      'Tool allowlist': '✗',
+      'Assets': '✅ (scripts/, references/, assets/)',
+      'MCP': '✅',
+      'Agents body': 'developer_instructions field (TOML)',
+      'AGENTS.md budget': '32 KiB HARD byte limit',
+    },
+    kinds: [
+      {name:'Instruction', cls:'merge', disp:'MERGE 32KB!'},
+      {name:'Skill', cls:'native', disp:'NATIVE'},
+      {name:'Subagent', cls:'native', disp:'TOML'},
+      {name:'Command', cls:'drop-c', disp:'DROP'},
+      {name:'McpServer', cls:'drop-c', disp:'DROP'},
+      {name:'Settings', cls:'drop-c', disp:'DROP'},
+      {name:'Plugin', cls:'drop-c', disp:'DROP'},
+      {name:'Hook', cls:'drop-c', disp:'DROP'},
+      {name:'Ignore', cls:'drop-c', disp:'DROP'},
+    ]
+  },
+  'gemini-cli': {
+    name: 'Gemini CLI', badge: 'unresearched',
+    fields: {
+      'Status': '⚠️ UNRESEARCHED — all capabilities conservatively set to off',
+      'Skill layout': 'AgentsMd (placeholder)',
+      'Agent layout': 'None',
+      'Frontmatter': 'None',
+      'Subagents': '✗',
+      'Permission model': 'Explicit',
+      'Ask user': 'None',
+      'Token budget': 'None',
+      'Tokenizer': 'GeminiApprox',
+      'All kind cells': 'Drop — nothing emitted until researched',
+      'Note': 'RFD-0001 §C-OPEN-QUESTIONS: must under-claim until validated',
+    },
+    kinds: [
+      {name:'Instruction', cls:'drop-c', disp:'DROP'},
+      {name:'Skill', cls:'drop-c', disp:'DROP'},
+      {name:'Subagent', cls:'drop-c', disp:'DROP'},
+      {name:'Command', cls:'drop-c', disp:'DROP'},
+      {name:'McpServer', cls:'drop-c', disp:'DROP'},
+      {name:'Settings', cls:'drop-c', disp:'DROP'},
+      {name:'Plugin', cls:'drop-c', disp:'DROP'},
+      {name:'Hook', cls:'drop-c', disp:'DROP'},
+      {name:'Ignore', cls:'drop-c', disp:'DROP'},
+    ]
+  },
+};
+
+function selectHost(id) {
+  // Update card selection
+  document.querySelectorAll('.host-card').forEach(c => c.classList.remove('selected'));
+  const card = document.querySelector(`[data-host="${id}"]`);
+  if (card) card.classList.add('selected');
+
+  const host = HOSTS[id];
+  if (!host) return;
+
+  const detail = document.getElementById('host-detail');
+  document.getElementById('detail-title').textContent = host.name;
+
+  // Fields
+  const grid = document.getElementById('detail-grid');
+  const fieldHtml = Object.entries(host.fields).map(([k, v]) =>
+    `<div class="field"><span class="field-key">${k}</span><span class="field-val">${v}</span></div>`
+  ).join('');
+  grid.innerHTML = `
+    <div class="detail-section">
+      <h4>Capabilities</h4>
+      ${fieldHtml}
+    </div>
+    <div class="detail-section">
+      <h4>Quick Reference</h4>
+      <div style="font-size:12px; color:var(--muted);">
+        <div style="margin-bottom:6px;">Template variable: <code>{{ host.id }}</code> = <strong style="color:var(--accent);">${id}</strong></div>
+        <div style="margin-bottom:6px;">Permission syntax: ${host.fields['Permission model'] || '—'}</div>
+        <div style="margin-bottom:6px;">Ask user: ${host.fields['Ask user'] || '—'}</div>
+      </div>
+    </div>
+  `;
+
+  // Kinds
+  const kindsEl = document.getElementById('detail-kinds');
+  kindsEl.innerHTML = host.kinds.map(k =>
+    `<div class="kind-cell ${k.cls}"><div class="kind-name">${k.name}</div><div class="kind-disp">${k.disp}</div></div>`
+  ).join('');
+
+  detail.classList.add('visible');
+  detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Tab switching
+function switchTab(group, tabId) {
+  const panels = document.querySelectorAll(`[id^="${group}-"]`);
+  panels.forEach(p => p.classList.remove('active'));
+  document.getElementById(`${group}-${tabId}`).classList.add('active');
+
+  // Find tabs in the same section
+  const section = document.getElementById(`${group}-${tabId}`).closest('section');
+  if (section) {
+    section.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    section.querySelectorAll('.tab').forEach(t => {
+      if (t.getAttribute('onclick').includes(tabId)) t.classList.add('active');
+    });
+  }
+}
+</script>
+</body>
+</html>

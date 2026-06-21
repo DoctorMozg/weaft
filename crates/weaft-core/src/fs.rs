@@ -14,7 +14,7 @@ pub struct Asset {
 }
 
 /// The project's `assets/` directory, if it exists.
-pub fn assets_dir(root: &Path) -> Option<PathBuf> {
+fn assets_dir(root: &Path) -> Option<PathBuf> {
     let dir = root.join("assets");
     dir.is_dir().then_some(dir)
 }

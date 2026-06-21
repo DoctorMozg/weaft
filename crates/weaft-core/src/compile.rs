@@ -1,9 +1,16 @@
-//! Render a skill or subagent body through minijinja with the host capability context.
+//! Render a compiled [`Artifact`] to a host-specific string via minijinja.
 //!
-//! The loader root is the **project root**, so `{% include "fragments/header.md.j2" %}`
-//! and `{% import "fragments/macros.md.j2" as m %}` resolve relative to it. Undefined
-//! variable access (e.g. a typo'd `host.subagnets`) is a hard error, not silent empty
-//! output — that is what turns capability typos into actionable diagnostics.
+//! **Loader root** is per-skill-type: flat skills (`skills/name.md`) use the project root;
+//! directory skills (`skills/name/SKILL.md`) use the skill's own directory so that
+//! `{% include "phases/..." %}` paths resolve relative to the skill.
+//!
+//! **Fragment pre-registration**: at environment setup, all files under `fragments/` at
+//! the project root are registered as named templates (e.g. `"fragments/footer.md.j2"`).
+//! Named templates resolve before the loader, so `{% include "fragments/..." %}` works
+//! from both flat and directory skills, and flat-skill output is byte-identical before
+//! and after this change.
+//!
+//! `UndefinedBehavior::Strict` is set — a `{{ host.* }}` typo is a hard error by design.
 
 use crate::capability::{Disposition, HostCapabilities, KindCapabilities};
 use crate::diag::WeftError;
@@ -13,7 +20,9 @@ use crate::params::ParamValues;
 use minijinja::{Environment, UndefinedBehavior, context, path_loader};
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::path::Path;
+use walkdir::WalkDir;
 
 /// The built-in `ask` macro. Skills and subagents get the import auto-prepended by the
 /// compiler, so their bodies call `{{ ask("...", ...) }}` directly with no manual import.
@@ -30,14 +39,77 @@ const ASK_J2: &str = include_str!("templates/ask.j2");
 /// to rendering the body alone.
 const ASK_IMPORT: &str = "{%- from \"weaft/ask.j2\" import ask -%}";
 
-fn environment(project_root: &Path) -> Environment<'static> {
+/// The loader root for a skill source. A directory skill (`skills/name/SKILL.md`) resolves its
+/// relative includes against its own directory; any other source (a flat skill, or a kind that
+/// is flat-file-only) resolves against `project_root`. This is the single, per-skill point of
+/// skill-type detection (ADR-0007 §2).
+fn skill_loader_root<'a>(source_path: &'a Path, project_root: &'a Path) -> &'a Path {
+    if source_path.file_name() == Some(OsStr::new("SKILL.md")) {
+        source_path.parent().unwrap_or(project_root)
+    } else {
+        project_root
+    }
+}
+
+/// Build a minijinja environment whose loader is rooted at `loader_root` and whose named-template
+/// table is pre-seeded from `project_root/fragments/`.
+///
+/// `loader_root` serves `{% include "phases/..." %}` (relative to a directory skill, or the
+/// project root for flat sources). Every file under `project_root/fragments/` is registered as a
+/// named template keyed by its project-root-relative, forward-slash path, so
+/// `{% include "fragments/..." %}` resolves via the table for both flat and directory skills —
+/// named templates resolve before the loader is consulted. A missing `fragments/` directory is not
+/// an error; a read failure on a file that exists is (ADR-0007 §4).
+fn environment(loader_root: &Path, project_root: &Path) -> Result<Environment<'static>, WeftError> {
     let mut env = Environment::new();
     env.set_undefined_behavior(UndefinedBehavior::Strict);
-    env.set_loader(path_loader(project_root));
+    env.set_loader(path_loader(loader_root));
     // A parse error here is a weaft bug, not user input — fail loudly at first render.
     env.add_template("weaft/ask.j2", ASK_J2)
         .expect("built-in weaft/ask.j2 macro template must compile");
-    env
+
+    let fragments_dir = project_root.join("fragments");
+    if fragments_dir.is_dir() {
+        for entry in WalkDir::new(&fragments_dir).sort_by_file_name() {
+            let entry = entry.map_err(|source| WeftError::Read {
+                path: source
+                    .path()
+                    .map_or_else(|| fragments_dir.clone(), Path::to_path_buf),
+                source: source.into(),
+            })?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let file_path = entry.path();
+            // Project-root-relative, forward-slash name (e.g. "fragments/footer.md.j2"). The
+            // prefix always strips since file_path is under project_root/fragments.
+            let name = file_path
+                .strip_prefix(project_root)
+                .unwrap()
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
+            let mut body =
+                std::fs::read_to_string(file_path).map_err(|source| WeftError::Read {
+                    path: file_path.to_path_buf(),
+                    source,
+                })?;
+            // minijinja strips one trailing newline from every template at lex time. A fragment is
+            // prose included into a larger document, so its final newline is content — double it so
+            // the strip leaves the file's own trailing newline intact.
+            if body.ends_with('\n') {
+                body.push('\n');
+            }
+            env.add_template_owned(name.clone(), body)
+                .map_err(|source| WeftError::Render {
+                    artifact: name,
+                    source: Box::new(source),
+                })?;
+        }
+    }
+
+    Ok(env)
 }
 
 fn render_body(
@@ -95,14 +167,15 @@ fn host_view(host: &HostCapabilities, artifact_kind: ArtifactKind) -> HostView<'
 
 /// Render a skill body. Templates see `skill`, `project`, `host`, and `params`. The `host`
 /// context is the [`HostView`] projection scoped to the `Skill` kind cell.
-pub fn render_skill(
+pub(crate) fn render_skill(
     skill: &Skill,
     project: &ProjectInfo,
     host: &HostCapabilities,
     params: &ParamValues,
     project_root: &Path,
 ) -> Result<String, WeftError> {
-    let env = environment(project_root);
+    let loader_root = skill_loader_root(&skill.source_path, project_root);
+    let env = environment(loader_root, project_root)?;
     let ctx = context! {
         skill => &skill.frontmatter,
         project => project,
@@ -115,14 +188,14 @@ pub fn render_skill(
 
 /// Render a subagent body. Templates see `agent`, `project`, `host`, and `params`. The `host`
 /// context is the [`HostView`] projection scoped to the `Subagent` kind cell.
-pub fn render_agent(
+pub(crate) fn render_agent(
     agent: &Agent,
     project: &ProjectInfo,
     host: &HostCapabilities,
     params: &ParamValues,
     project_root: &Path,
 ) -> Result<String, WeftError> {
-    let env = environment(project_root);
+    let env = environment(project_root, project_root)?;
     let ctx = context! {
         agent => &agent.frontmatter,
         project => project,
@@ -144,7 +217,7 @@ fn render_instruction(
     params: &ParamValues,
     project_root: &Path,
 ) -> Result<String, WeftError> {
-    let env = environment(project_root);
+    let env = environment(project_root, project_root)?;
     let ctx = context! {
         project => project,
         host => host_view(host, ArtifactKind::Instruction),
@@ -610,5 +683,233 @@ mod v2_kind_scoped_context_tests {
             typo.is_err(),
             "host.kind.nonexistent must be a hard render error under UndefinedBehavior::Strict",
         );
+    }
+}
+
+/// ADR-0007 WU-2: per-skill `loader_root` derivation + `fragments/` pre-registration (RED).
+///
+/// These tests target the loader-root machinery authored in the later GREEN step:
+/// - `skill_loader_root(source_path, project_root)` — the single, per-skill detection point:
+///   a `SKILL.md` source resolves to its own directory; anything else to `project_root` (ADR §2);
+/// - directory-skill includes resolve relative to the skill dir (`{% include "phases/..." %}`),
+///   while `{% include "fragments/..." %}` resolves via the project-root named-template table for
+///   BOTH forms (ADR §4);
+/// - a missing include is a hard render error (ADR §5, no silent fallback);
+/// - a project with no `fragments/` dir still builds an environment (ADR §4).
+///
+/// `skill_loader_root` does not exist yet, so this module fails to compile with a missing-function
+/// error — the expected RED. It must not be softened by stubbing the helper. The render tests build
+/// an in-memory `Skill` whose `source_path` points into a temp dir holding the `phases/`/`fragments/`
+/// files, then call the public `render_skill`.
+#[cfg(test)]
+mod skill_dir_loader_tests {
+    use super::*;
+    use crate::capability::CLAUDE_CODE;
+    use crate::ir::{Skill, SkillMeta, Targets};
+    use std::collections::BTreeMap;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn project() -> ProjectInfo {
+        ProjectInfo {
+            name: "proj".into(),
+            version: "0.1.0".into(),
+            description: String::new(),
+            meta: Default::default(),
+            targets: Targets::default(),
+            parameters: BTreeMap::new(),
+            settings: None,
+            mcp_servers: BTreeMap::new(),
+            ignore: Vec::new(),
+            plugin: None,
+        }
+    }
+
+    /// A `Skill` named `name` with the given body and `source_path`. The `source_path` is what
+    /// `render_skill` keys on to derive the per-skill loader root (`file_name` == "SKILL.md").
+    fn skill_at(name: &str, body: &str, source_path: PathBuf) -> Skill {
+        Skill {
+            frontmatter: SkillMeta {
+                name: name.into(),
+                description: "d".into(),
+                targets: Targets::default(),
+            },
+            body: body.into(),
+            source_path,
+        }
+    }
+
+    /// A fresh, empty temp project root unique to `(tag, pid)`, removed first so a crashed re-run
+    /// starts clean. The caller writes `skills/`, `fragments/`, etc. beneath it.
+    fn fresh_root(tag: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("weaft-loaderroot-{}-{}", tag, std::process::id()));
+        drop(fs::remove_dir_all(&root));
+        fs::create_dir_all(&root).expect("create temp project root");
+        root
+    }
+
+    /// Write `relative` under `root`, creating parent folders as needed.
+    fn write_under(root: &Path, relative: &str, contents: &str) {
+        let path = root.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create folder");
+        }
+        fs::write(&path, contents).expect("write file");
+    }
+
+    #[test]
+    fn flat_skill_loader_root_is_project_root() {
+        // ADR §2: a flat skill source (`skills/x.md`) must resolve its loader root to the project
+        // root, leaving flat-skill include behavior unchanged.
+        let root = skill_loader_root(Path::new("skills/x.md"), Path::new("/root"));
+        assert_eq!(
+            root,
+            Path::new("/root"),
+            "a flat skill's loader root must be the project root",
+        );
+    }
+
+    #[test]
+    fn directory_skill_loader_root_is_skill_dir() {
+        // ADR §2: a directory skill source (`skills/x/SKILL.md`) must resolve its loader root to
+        // the skill's own directory (`skills/x`), so its relative includes resolve locally.
+        let root = skill_loader_root(Path::new("skills/x/SKILL.md"), Path::new("/root"));
+        assert_eq!(
+            root,
+            Path::new("skills/x"),
+            "a directory skill's loader root must be its own SKILL.md parent directory",
+        );
+    }
+
+    #[test]
+    fn fragment_include_resolves_for_directory_skill() {
+        // ADR §4: a directory skill rooted at `skills/greeter/` must still resolve a
+        // `{% include "fragments/note.md" %}` via the project-root named-template table — even
+        // though `fragments/` is not under the skill's loader root.
+        let root = fresh_root("dir-fragment");
+        write_under(&root, "fragments/note.md", "FRAGMENT");
+        write_under(
+            &root,
+            "skills/greeter/SKILL.md",
+            "---\nname: greeter\ndescription: d.\n---\nbody",
+        );
+
+        let skill = skill_at(
+            "greeter",
+            "{% include \"fragments/note.md\" %}",
+            root.join("skills/greeter/SKILL.md"),
+        );
+        let out = render_skill(&skill, &project(), &CLAUDE_CODE, &BTreeMap::new(), &root)
+            .expect("a directory skill including a project-root fragment must render");
+        assert!(
+            out.contains("FRAGMENT"),
+            "the project-root fragment must resolve for a directory skill; got: {out:?}",
+        );
+
+        drop(fs::remove_dir_all(&root));
+    }
+
+    #[test]
+    fn directory_skill_relative_include_resolves_from_skill_dir() {
+        // ADR §2/§4: a directory skill's relative include (`{% include "phases/intro.md" %}`) must
+        // resolve from its own directory (loader root = skill dir), rendering the phase content.
+        let root = fresh_root("dir-relative");
+        write_under(&root, "skills/greeter/phases/intro.md", "PHASE_CONTENT");
+        write_under(
+            &root,
+            "skills/greeter/SKILL.md",
+            "---\nname: greeter\ndescription: d.\n---\nbody",
+        );
+
+        let skill = skill_at(
+            "greeter",
+            "{% include \"phases/intro.md\" %}",
+            root.join("skills/greeter/SKILL.md"),
+        );
+        let out = render_skill(&skill, &project(), &CLAUDE_CODE, &BTreeMap::new(), &root)
+            .expect("a directory skill's relative phase include must render");
+        assert!(
+            out.contains("PHASE_CONTENT"),
+            "the relative phase include must resolve from the skill dir; got: {out:?}",
+        );
+
+        drop(fs::remove_dir_all(&root));
+    }
+
+    #[test]
+    fn flat_skill_fragment_render_is_byte_identical() {
+        // Regression anchor (ADR §4, §11): a flat skill whose body is exactly the fragment include
+        // must render to the fragment content verbatim. The auto-prepended `ASK_IMPORT` is a
+        // `{%- -%}`-trimmed import that renders to empty, so the output equals the fragment body
+        // byte-for-byte. The fragment content is static (no `{{ host.* }}`) so the expected string
+        // is unambiguous. This must hold both before and after WU-2 (the named-table is built from
+        // the same project-root file the loader served), pinning byte-identity of flat-skill output.
+        let root = fresh_root("flat-byte-identical");
+        let fragment = "shared footer line\n";
+        write_under(&root, "fragments/footer.md.j2", fragment);
+
+        let skill = skill_at(
+            "safe",
+            "{% include \"fragments/footer.md.j2\" %}",
+            root.join("skills/safe.md"),
+        );
+        let out = render_skill(&skill, &project(), &CLAUDE_CODE, &BTreeMap::new(), &root)
+            .expect("a flat skill including a project-root fragment must render");
+        assert_eq!(
+            out, fragment,
+            "a flat skill's fragment render must be byte-identical to the fragment content",
+        );
+
+        drop(fs::remove_dir_all(&root));
+    }
+
+    #[test]
+    fn missing_include_is_hard_render_error() {
+        // ADR §5: a directory skill including a non-existent `phases/nonexistent.md` (no phases/
+        // dir at all) must be a hard render error under UndefinedBehavior::Strict — never silent
+        // fallback or empty content.
+        let root = fresh_root("missing-include");
+        write_under(
+            &root,
+            "skills/greeter/SKILL.md",
+            "---\nname: greeter\ndescription: d.\n---\nbody",
+        );
+
+        let skill = skill_at(
+            "greeter",
+            "{% include \"phases/nonexistent.md\" %}",
+            root.join("skills/greeter/SKILL.md"),
+        );
+        let result = render_skill(&skill, &project(), &CLAUDE_CODE, &BTreeMap::new(), &root);
+        assert!(
+            matches!(result, Err(WeftError::Render { .. })),
+            "a missing include must be a hard WeftError::Render, not silent fallback; got: {result:?}",
+        );
+
+        drop(fs::remove_dir_all(&root));
+    }
+
+    #[test]
+    fn environment_missing_fragments_dir_is_ok() {
+        // ADR §4: a project with NO `fragments/` directory must still build an environment — a
+        // simple body (no includes) renders without error.
+        let root = fresh_root("no-fragments");
+        write_under(
+            &root,
+            "skills/greeter/SKILL.md",
+            "---\nname: greeter\ndescription: d.\n---\nbody",
+        );
+
+        let skill = skill_at(
+            "greeter",
+            "just plain body text",
+            root.join("skills/greeter/SKILL.md"),
+        );
+        let out = render_skill(&skill, &project(), &CLAUDE_CODE, &BTreeMap::new(), &root)
+            .expect("a project with no fragments/ dir must still render a no-include body");
+        assert_eq!(out, "just plain body text");
+
+        drop(fs::remove_dir_all(&root));
     }
 }

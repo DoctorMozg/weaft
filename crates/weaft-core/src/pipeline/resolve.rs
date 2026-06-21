@@ -13,11 +13,13 @@
 //! no I/O (C-PIPELINE). The downstream [`crate::pipeline::map`] stage reads the host id and the
 //! resolved cell off the returned [`Resolved`], so both are carried through.
 //!
-//! Two entry points: [`resolve`] is infallible and assumes a well-formed matrix; [`resolve_checked`]
-//! additionally enforces the ≤1-hop fold termination invariant (C-SUPPORT-DISPOSITION) and
-//! returns a [`WeftError`] if a fold target itself folds.
+//! Primary entry point: [`resolve`] is infallible and assumes a well-formed matrix.
+//! [`resolve_checked`] is a test-only variant that validates matrix invariants — it enforces the
+//! ≤1-hop fold termination invariant (C-SUPPORT-DISPOSITION) and returns a [`WeftError`] if a fold
+//! target itself folds.
 
 use crate::capability::{Disposition, HostCapabilities, KindCapabilities};
+#[cfg(test)]
 use crate::diag::WeftError;
 use crate::ir::Artifact;
 use crate::kind::ArtifactKind;
@@ -31,9 +33,7 @@ use crate::kind::ArtifactKind;
 /// rather than `'static`.
 #[derive(Debug, Clone, Copy)]
 pub struct Resolved<'a> {
-    /// The artifact's own kind, carried through unchanged.
-    pub artifact_kind: ArtifactKind,
-    /// The kind whose output this artifact contributes to. Equals `artifact_kind` for
+    /// The kind whose output this artifact contributes to. Equals the artifact's own kind for
     /// `Native`/`Drop`; for a fold it is the fold target kind.
     pub effective_kind: ArtifactKind,
     /// What the host does with this artifact's kind.
@@ -57,14 +57,12 @@ pub fn resolve<'a>(artifact: &Artifact, host: &'a HostCapabilities) -> Resolved<
     let cell = host.kinds.get(artifact.kind);
     match cell.disposition {
         Disposition::Native | Disposition::Drop => Resolved {
-            artifact_kind: artifact.kind,
             effective_kind: artifact.kind,
             disposition: cell.disposition,
             cell,
             host_id: host.id,
         },
         Disposition::Fold { into } => Resolved {
-            artifact_kind: artifact.kind,
             effective_kind: into,
             disposition: cell.disposition,
             cell: host.kinds.get(into),
@@ -78,6 +76,7 @@ pub fn resolve<'a>(artifact: &Artifact, host: &'a HostCapabilities) -> Resolved<
 /// fold (or a drop). The WU-6 matrix tests guard this statically; this is the defensive runtime
 /// guard for a matrix-authoring slip, returning a hard [`WeftError`] rather than chasing the
 /// chain.
+#[cfg(test)]
 pub fn resolve_checked<'a>(
     artifact: &Artifact,
     host: &'a HostCapabilities,
@@ -199,11 +198,6 @@ mod tests {
             ArtifactKind::Subagent,
             "a native Subagent keeps Subagent as its effective kind",
         );
-        assert_eq!(
-            resolved.artifact_kind,
-            ArtifactKind::Subagent,
-            "the original artifact kind is carried through unchanged",
-        );
         // The resolved cell must be the Subagent cell on this host (Native, not a fold target).
         assert_eq!(resolved.cell.kind, ArtifactKind::Subagent);
         assert_eq!(resolved.cell.disposition, Disposition::Native);
@@ -260,11 +254,6 @@ mod tests {
 
         let resolved = resolve(&art, &folded);
 
-        assert_eq!(
-            resolved.artifact_kind,
-            ArtifactKind::Instruction,
-            "the source artifact kind is still Instruction",
-        );
         assert_eq!(
             resolved.effective_kind,
             ArtifactKind::Skill,

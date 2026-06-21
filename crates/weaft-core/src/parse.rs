@@ -1,17 +1,18 @@
 //! Parse a weaft project from disk into the [`Project`] IR.
 
 use crate::diag::WeftError;
-use crate::ir::{Artifact, ArtifactMeta, Project, ProjectInfo};
+use crate::ir::{AgentMeta, Artifact, ArtifactMeta, Project, ProjectInfo};
 use crate::kind::ArtifactKind;
 use serde::de::DeserializeOwned;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 // v1 per-kind frontmatter types, used only by the test-only `parse_skill`/`parse_agent`.
 #[cfg(test)]
-use crate::ir::{Agent, AgentMeta, Skill, SkillMeta};
+use crate::ir::{Agent, Skill, SkillMeta};
 
 /// The project info file name.
-pub const MANIFEST_NAME: &str = "weaft.yaml";
+const MANIFEST_NAME: &str = "weaft.yaml";
 
 /// Load a whole project given a path to `weaft.yaml` (or a directory containing it).
 pub fn load_project(manifest_path: &Path) -> Result<Project, WeftError> {
@@ -120,7 +121,13 @@ fn load_artifacts(root: &Path) -> Result<Vec<Artifact>, WeftError> {
         if ArtifactKind::from_folder(folder) != Some(*kind) {
             continue;
         }
-        artifacts.extend(load_kind_dir(&root.join(folder), *kind)?);
+        // Skill is the only two-mode kind (flat `skills/<name>.md` PLUS directory
+        // `skills/<name>/SKILL.md`, ADR-0007); every other folder-backed kind stays flat-only.
+        if *kind == ArtifactKind::Skill {
+            artifacts.extend(load_skill_dir(&root.join(folder))?);
+        } else {
+            artifacts.extend(load_kind_dir(&root.join(folder), *kind)?);
+        }
     }
 
     // Determinism (C-DETERMINISM): sort by (kind index, source path) so iteration order is
@@ -151,6 +158,73 @@ fn load_kind_dir(dir: &Path, folder_kind: ArtifactKind) -> Result<Vec<Artifact>,
         .collect()
 }
 
+/// Load Skill-kind artifacts from `skills_dir` in both supported forms (ADR-0007): the flat
+/// `skills/<name>.md` file and the directory `skills/<name>/SKILL.md`. Descent is exactly one
+/// level — files deeper than a skill's own `SKILL.md` (e.g. `phases/*.md`) are never collected.
+/// When both forms resolve to the same stem the directory form wins and the flat file is silently
+/// excluded here (the `duplicate_skill` lint surfaces the coexistence). A missing `skills/`
+/// directory yields an empty list — a project need not have skills. Both forms go through the same
+/// [`parse_artifact`] path, so a `kind:` frontmatter override still reclassifies either form.
+fn load_skill_dir(skills_dir: &Path) -> Result<Vec<Artifact>, WeftError> {
+    if !skills_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    // Directory form: each immediate subdirectory's `SKILL.md`, iff it exists as a file. The
+    // subdirectory name is the skill's stem; collect those stems so the flat branch can drop any
+    // file the directory form shadows.
+    let mut artifacts: Vec<Artifact> = Vec::new();
+    let mut dir_stems: BTreeSet<String> = BTreeSet::new();
+    for subdir in subdirectories(skills_dir)? {
+        let skill_md = subdir.join("SKILL.md");
+        if !skill_md.is_file() {
+            continue;
+        }
+        if let Some(stem) = subdir.file_name().and_then(|s| s.to_str()) {
+            dir_stems.insert(stem.to_string());
+        }
+        let src = read(&skill_md)?;
+        artifacts.push(parse_artifact(&skill_md, &src, ArtifactKind::Skill)?);
+    }
+
+    // Flat form: every `*.md` directly inside `skills_dir`, minus a stray top-level `SKILL.md`
+    // (not a directory skill) and minus any file whose stem the directory form already claims.
+    for path in markdown_paths(skills_dir)? {
+        if path.file_name() == Some(std::ffi::OsStr::new("SKILL.md")) {
+            continue;
+        }
+        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+            if dir_stems.contains(stem) {
+                continue;
+            }
+        }
+        let src = read(&path)?;
+        artifacts.push(parse_artifact(&path, &src, ArtifactKind::Skill)?);
+    }
+
+    Ok(artifacts)
+}
+
+/// Collect every immediate subdirectory of `dir` as an absolute, sorted path list. A missing
+/// directory yields an empty vec (mirrors [`load_kind_dir`] / [`markdown_paths`] for an absent
+/// folder); an unreadable existing directory is a [`WeftError::Read`].
+fn subdirectories(dir: &Path) -> Result<Vec<PathBuf>, WeftError> {
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut subdirs: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map_err(|source| WeftError::Read {
+            path: dir.to_path_buf(),
+            source,
+        })?
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .map(|e| e.path())
+        .collect();
+    subdirs.sort();
+    Ok(subdirs)
+}
+
 /// Collect every `*.md` path directly inside `dir`. Order is irrelevant here — the caller
 /// sorts the merged artifact list deterministically — but errors on an unreadable directory.
 fn markdown_paths(dir: &Path) -> Result<Vec<PathBuf>, WeftError> {
@@ -160,6 +234,7 @@ fn markdown_paths(dir: &Path) -> Result<Vec<PathBuf>, WeftError> {
             source,
         })?
         .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
         .map(|e| e.path())
         .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("md"))
         .collect())
@@ -181,6 +256,18 @@ fn parse_artifact(
         src: src.to_string(),
     })?;
     let kind = frontmatter.kind_override.unwrap_or(folder_kind);
+    // A Subagent's typed fields (tools/model/readonly/is_background) are not deserialized until
+    // render time (`ArtifactMeta::to_agent_meta`), where a type mismatch would panic. Validate the
+    // frontmatter as an `AgentMeta` here so a mistyped value (`tools: Read`, `readonly: maybe`)
+    // surfaces as a span-bearing frontmatter error at parse time instead of a compile-time panic.
+    if kind == ArtifactKind::Subagent {
+        parse_yaml::<AgentMeta>(fm_src).map_err(|e| WeftError::Frontmatter {
+            path: path.to_path_buf(),
+            label: yaml_label(&e),
+            span: yaml_span(&e, fm_src),
+            src: src.to_string(),
+        })?;
+    }
     Ok(Artifact {
         kind,
         frontmatter,
@@ -190,7 +277,7 @@ fn parse_artifact(
 }
 
 /// Resolve a `--manifest-path` that may be the file itself or its directory.
-pub fn resolve_manifest(path: &Path) -> Result<PathBuf, WeftError> {
+fn resolve_manifest(path: &Path) -> Result<PathBuf, WeftError> {
     let candidate = if path.is_dir() {
         path.join(MANIFEST_NAME)
     } else {
@@ -342,6 +429,32 @@ mod tests {
         assert_eq!(agent.frontmatter.name, "rev");
         assert_eq!(agent.frontmatter.tools, vec!["Read", "Grep"]);
         assert_eq!(agent.frontmatter.model.as_deref(), Some("inherit"));
+    }
+
+    #[test]
+    fn subagent_with_mistyped_tools_is_a_frontmatter_error() {
+        // `tools` must be a sequence; a scalar is a type error. Validation moved to parse time, so
+        // this surfaces as a span-bearing frontmatter error here rather than panicking later in
+        // `ArtifactMeta::to_agent_meta` during compile.
+        let src = "---\nname: rev\ndescription: Reviewer.\ntools: Read\n---\nBody.\n";
+        let err =
+            parse_artifact(Path::new("agents/rev.md"), src, ArtifactKind::Subagent).unwrap_err();
+        assert!(
+            matches!(err, WeftError::Frontmatter { .. }),
+            "a mistyped subagent `tools` must be a frontmatter parse error, not a panic; got: {err:?}",
+        );
+    }
+
+    #[test]
+    fn valid_subagent_parses_through_parse_artifact() {
+        // The added Subagent validation must not reject a well-formed agent: the happy path still
+        // yields a Subagent artifact whose body is preserved.
+        let src = "---\nname: rev\ndescription: Reviewer.\ntools: [Read, Grep]\n---\nYou review.\n";
+        let artifact =
+            parse_artifact(Path::new("agents/rev.md"), src, ArtifactKind::Subagent).unwrap();
+        assert!(matches!(artifact.kind, ArtifactKind::Subagent));
+        assert_eq!(artifact.frontmatter.name, "rev");
+        assert_eq!(artifact.body, "You review.\n");
     }
 }
 
@@ -795,5 +908,304 @@ plugin:
         );
 
         drop(fs::remove_dir_all(&root));
+    }
+}
+
+/// ADR-0007 WU-1: two-mode Skill source collection (flat `skills/<name>.md` PLUS directory
+/// `skills/<name>/SKILL.md`) (RED).
+///
+/// These tests drive `load_skill_dir(skills_dir)` — the Skill-only collector authored in the
+/// later GREEN step — directly against an on-disk `skills/` tree built in a temp dir. The
+/// contract (ADR §1, §6, §8, §13):
+/// - a `skills/<name>/SKILL.md` becomes one Skill-kind artifact whose `source_path` ends in
+///   `SKILL.md`;
+/// - a flat `skills/<name>.md` still loads (regression);
+/// - when both forms resolve to the same stem the directory form wins and the flat file is
+///   silently excluded (one artifact; the `duplicate_skill` lint surfaces the coexistence);
+/// - descent is exactly one level — `skills/<name>/phases/*.md` are never collected;
+/// - flat and directory skills with distinct stems coexist;
+/// - a `kind:` frontmatter override still reclassifies a directory skill (shared `parse_artifact`).
+///
+/// `load_skill_dir` does not exist yet, so this module fails to compile with a missing-function
+/// error — the expected RED. It must not be softened by stubbing the collector. The temp-dir
+/// scaffolding follows the existing `v2_folder_kind_tests` convention (`std::env::temp_dir()` +
+/// `process::id()` + a per-test sub-tag, since this binary's tests share one PID).
+#[cfg(test)]
+mod skill_dir_layout_tests {
+    use super::*;
+    use crate::ir::Artifact;
+    use crate::kind::ArtifactKind;
+    use std::ffi::OsStr;
+    use std::fs;
+    use std::path::PathBuf;
+
+    /// A fresh, empty `skills/` directory unique to `(tag, pid)`. The whole project dir is removed
+    /// first so a re-run after a crash starts clean; the caller writes the skill sources into the
+    /// returned `skills/` path. Returns the `skills/` dir itself (the `load_skill_dir` argument).
+    fn fresh_skills_dir(tag: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("weaft-skilldir-{}-{}", tag, std::process::id()));
+        drop(fs::remove_dir_all(&root));
+        let skills = root.join("skills");
+        fs::create_dir_all(&skills).expect("create temp skills dir");
+        skills
+    }
+
+    /// Write `relative` under `skills_dir`, creating parent folders as needed.
+    fn write_under(skills_dir: &Path, relative: &str, contents: &str) {
+        let path = skills_dir.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create skill subfolder");
+        }
+        fs::write(&path, contents).expect("write skill source file");
+    }
+
+    /// Remove the whole temp project root (the parent of `skills_dir`).
+    fn cleanup(skills_dir: &Path) {
+        if let Some(root) = skills_dir.parent() {
+            drop(fs::remove_dir_all(root));
+        }
+    }
+
+    /// The single artifact named `name`, panicking if absent — keeps assertions terse.
+    fn artifact_named<'a>(artifacts: &'a [Artifact], name: &str) -> &'a Artifact {
+        artifacts
+            .iter()
+            .find(|a| a.frontmatter.name == name)
+            .unwrap_or_else(|| panic!("no artifact named {name:?} in collected skills"))
+    }
+
+    #[test]
+    fn directory_skill_loads_from_skill_md() {
+        // ADR §1: a `skills/<name>/SKILL.md` must collect as exactly one Skill-kind artifact whose
+        // `source_path` ends in `SKILL.md` and whose name comes from the SKILL.md frontmatter.
+        let skills = fresh_skills_dir("dir-loads");
+        write_under(
+            &skills,
+            "greeter/SKILL.md",
+            "---\nname: greeter\ndescription: Says hello.\n---\nHello there.\n",
+        );
+
+        let artifacts = load_skill_dir(&skills).expect("a directory skill must load");
+        assert_eq!(
+            artifacts.len(),
+            1,
+            "exactly one artifact for one directory skill; got: {artifacts:?}",
+        );
+        let greeter = artifact_named(&artifacts, "greeter");
+        assert_eq!(
+            greeter.kind,
+            ArtifactKind::Skill,
+            "a directory skill must be Skill-kind",
+        );
+        assert_eq!(
+            greeter.source_path.file_name(),
+            Some(OsStr::new("SKILL.md")),
+            "a directory skill's source_path must point at its SKILL.md",
+        );
+
+        cleanup(&skills);
+    }
+
+    #[test]
+    fn flat_skill_still_loads() {
+        // Regression (ADR §1): the existing flat form `skills/<name>.md` must still collect as a
+        // Skill-kind artifact under the new two-mode collector.
+        let skills = fresh_skills_dir("flat-loads");
+        write_under(
+            &skills,
+            "safe.md",
+            "---\nname: safe\ndescription: A flat skill.\n---\nBe careful.\n",
+        );
+
+        let artifacts = load_skill_dir(&skills).expect("a flat skill must still load");
+        assert_eq!(
+            artifacts.len(),
+            1,
+            "exactly one artifact for one flat skill; got: {artifacts:?}",
+        );
+        let safe = artifact_named(&artifacts, "safe");
+        assert_eq!(
+            safe.kind,
+            ArtifactKind::Skill,
+            "a flat skill must be Skill-kind",
+        );
+
+        cleanup(&skills);
+    }
+
+    #[test]
+    fn directory_form_shadows_flat_form() {
+        // ADR §6: when both `skills/dup.md` and `skills/dup/SKILL.md` exist, the directory form
+        // wins — exactly one `dup` artifact, and its source_path is the SKILL.md (the flat file is
+        // silently excluded here; the `duplicate_skill` lint surfaces the coexistence separately).
+        let skills = fresh_skills_dir("shadow");
+        write_under(
+            &skills,
+            "dup.md",
+            "---\nname: dup\ndescription: the FLAT form.\n---\nFlat body.\n",
+        );
+        write_under(
+            &skills,
+            "dup/SKILL.md",
+            "---\nname: dup\ndescription: the DIRECTORY form.\n---\nDirectory body.\n",
+        );
+
+        let artifacts = load_skill_dir(&skills).expect("coexisting forms must load");
+        let dups: Vec<&Artifact> = artifacts
+            .iter()
+            .filter(|a| a.frontmatter.name == "dup")
+            .collect();
+        assert_eq!(
+            dups.len(),
+            1,
+            "the directory form must shadow the flat form — exactly one `dup` artifact; got: {artifacts:?}",
+        );
+        assert_eq!(
+            dups[0].source_path.file_name(),
+            Some(OsStr::new("SKILL.md")),
+            "the surviving `dup` artifact must be the directory form (source_path = SKILL.md)",
+        );
+
+        cleanup(&skills);
+    }
+
+    #[test]
+    fn non_skill_md_files_in_skill_dir_are_not_artifacts() {
+        // ADR §8: descent is one level only. A `skills/greeter/phases/research.md` (and any other
+        // non-SKILL.md file inside the skill dir) must NOT be collected as an artifact — only the
+        // skill's own SKILL.md is.
+        let skills = fresh_skills_dir("one-level");
+        write_under(
+            &skills,
+            "greeter/SKILL.md",
+            "---\nname: greeter\ndescription: Says hello.\n---\n{% include \"phases/research.md\" %}\n",
+        );
+        write_under(
+            &skills,
+            "greeter/phases/research.md",
+            "Phase research content.\n",
+        );
+
+        let artifacts = load_skill_dir(&skills).expect("a directory skill with phases must load");
+        assert_eq!(
+            artifacts.len(),
+            1,
+            "only the SKILL.md is an artifact; the phase file must not be collected; got: {artifacts:?}",
+        );
+
+        cleanup(&skills);
+    }
+
+    #[test]
+    fn mixed_flat_and_directory_skills_coexist() {
+        // A project may freely mix forms (ADR §2): a flat `skills/flat.md` and a directory
+        // `skills/dir/SKILL.md` with distinct stems must both load — two artifacts.
+        let skills = fresh_skills_dir("mixed");
+        write_under(
+            &skills,
+            "flat.md",
+            "---\nname: flat\ndescription: a flat skill.\n---\nFlat body.\n",
+        );
+        write_under(
+            &skills,
+            "dir/SKILL.md",
+            "---\nname: dir\ndescription: a directory skill.\n---\nDir body.\n",
+        );
+
+        let artifacts = load_skill_dir(&skills).expect("mixed forms must load");
+        assert_eq!(
+            artifacts.len(),
+            2,
+            "a flat and a directory skill with distinct stems must both load; got: {artifacts:?}",
+        );
+        // Both forms must be present and Skill-kind.
+        assert_eq!(artifact_named(&artifacts, "flat").kind, ArtifactKind::Skill);
+        assert_eq!(artifact_named(&artifacts, "dir").kind, ArtifactKind::Skill);
+
+        cleanup(&skills);
+    }
+
+    #[test]
+    fn kind_override_still_applies_to_directory_skill() {
+        // ADR §1: the directory form is parsed through the same `parse_artifact` path, so a `kind:`
+        // frontmatter override must still reclassify it. A `skills/rev/SKILL.md` declaring
+        // `kind: subagent` must end up Subagent-kind.
+        let skills = fresh_skills_dir("dir-kind-override");
+        write_under(
+            &skills,
+            "rev/SKILL.md",
+            "---\nname: rev\ndescription: lives in skills/ but is a subagent.\nkind: subagent\n---\nReview code.\n",
+        );
+
+        let artifacts =
+            load_skill_dir(&skills).expect("a directory skill with kind override must load");
+        let rev = artifact_named(&artifacts, "rev");
+        assert_eq!(
+            rev.kind,
+            ArtifactKind::Subagent,
+            "a `kind: subagent` override on a directory SKILL.md must reclassify it to Subagent",
+        );
+
+        cleanup(&skills);
+    }
+
+    #[test]
+    fn stray_top_level_skill_md_is_excluded_from_flat_set() {
+        // A `SKILL.md` placed directly under `skills/` (not inside a `skills/<name>/` subdir) is
+        // neither a valid flat skill nor a valid directory skill: there is no parent subdir named
+        // like a skill, and the flat collector filters out paths whose file_name == "SKILL.md".
+        // So it produces zero artifacts.
+        let skills = fresh_skills_dir("stray-skill-md");
+        write_under(
+            &skills,
+            "SKILL.md",
+            "---\nname: stray\ndescription: a top-level SKILL.md, not a directory skill.\n---\nBody.\n",
+        );
+
+        let artifacts =
+            load_skill_dir(&skills).expect("a stray top-level SKILL.md must load cleanly");
+        assert_eq!(
+            artifacts.len(),
+            0,
+            "a stray skills/SKILL.md is neither a flat nor a directory skill — zero artifacts; got: {artifacts:?}",
+        );
+
+        cleanup(&skills);
+    }
+
+    #[test]
+    fn dot_named_skill_directory_does_not_crash() {
+        // Regression: a skills/ subdirectory whose name ends in `.md` (e.g. `skills/v0.1/`,
+        // `skills/foo.md/`) is a valid directory-skill layout. Before the file-type guard was
+        // added to `markdown_paths`, the flat collector would try to `read` the directory and
+        // crash with "Is a directory" (os error 21). With the fix it is filtered out from the
+        // flat branch and collected correctly as a directory skill instead.
+        let skills = fresh_skills_dir("dot-named-dir");
+        let subdir = skills.join("foo.md");
+        fs::create_dir_all(&subdir).unwrap();
+        fs::write(
+            subdir.join("SKILL.md"),
+            "---\nname: foo-dotmd\ndescription: directory skill with a dot in the folder name.\n---\nBody.\n",
+        )
+        .unwrap();
+
+        let artifacts = load_skill_dir(&skills)
+            .expect("a skills/foo.md/SKILL.md directory skill must load without crashing");
+        assert_eq!(
+            artifacts.len(),
+            1,
+            "expected exactly one artifact; got: {artifacts:?}"
+        );
+        assert_eq!(
+            artifacts[0]
+                .source_path
+                .file_name()
+                .and_then(|n| n.to_str()),
+            Some("SKILL.md"),
+            "source_path must be the SKILL.md file, not the directory",
+        );
+
+        cleanup(&skills);
     }
 }
